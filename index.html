@@ -6,8 +6,12 @@
 <meta name="theme-color" content="#0d1b33">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Celly Belly</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%A7%8A%3C/text%3E%3C/svg%3E">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="alternate icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%A7%8A%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/style.css">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-title" content="Celly Belly">
 </head>
 <body>
 <div id="app">
@@ -19,7 +23,7 @@
   <!-- HOME: one big PLAY into the net-shooting game -->
   <section id="home" class="screen">
     <header class="topbar nhtop">
-      <span class="npill" id="home-coins">🪙 0</span>
+      <div class="pills"><span class="npill" id="home-coins">🪙 0</span><button class="npill" id="btn-shop">🛒 Shop</button></div>
       <div class="pills"><button class="npill icon boss-btn" title="Boss key (B)">📊</button><button class="npill icon mute-btn" aria-label="Mute (M)">🔊</button></div>
     </header>
     <div class="nhome">
@@ -28,7 +32,8 @@
       <p class="ntag">TOP SHELF, BOTTOM BARREL</p>
       <p class="nbest" id="nh-best">Best 0 · Streak 0</p>
       <button class="nplay" id="btn-shoot">PLAY</button>
-      <button class="nlink2" id="btn-sdaily">📅 Daily Target Challenge</button>
+      <button class="nplay beerb" id="btn-pints">BEER LEAGUE<small id="pints-sub">Pint 1</small></button>
+      <div class="nsmall"><button class="nlink2" id="btn-sdaily">📅 Daily Target Challenge</button><button class="nlink2" id="btn-weekly">🏆 Weekly</button></div>
       <button class="nmore" id="btn-more">More</button>
       <div id="more-panel" class="hidden">
         <button class="btn play" id="btn-play"><b>▶ Classic levels</b><small id="play-sub">Level 1</small></button>
@@ -37,7 +42,7 @@
         <div class="homegrid">
           <button class="tile2" id="btn-levels"><b>🏒 Levels</b><small id="levels-sub">0 / 32 cleared</small></button>
           <button class="tile2" id="btn-dlevel"><b>📅 Daily Level</b><small id="dlevel-sub">Same shot for everyone</small></button>
-          <button class="tile2 beer" id="btn-beer"><b>🍺 Beer League</b><small id="beer-sub">75s · 5 wobbly rounds</small></button>
+          <button class="tile2 beer" id="btn-beer"><b>🍺 Classic Beer League</b><small id="beer-sub">75s · 5 wobbly rounds</small></button>
           <button class="tile2" id="btn-manager"><b>🧊 Rink Manager</b><small>Zamboni side gig</small></button>
         </div>
       </div>
@@ -57,13 +62,43 @@
     <div id="s-call"></div>
     <div id="s-end" class="hidden"><div class="send">
       <small id="se-mode">RUN OVER</small>
+      <div id="se-stars" class="sestars"></div>
       <b id="se-score">0</b>
       <span id="se-pb" class="hidden">NEW BEST</span>
       <p id="se-stats"></p>
       <p id="se-coins"></p>
       <button class="nplay small" id="se-retry">PLAY AGAIN</button>
-      <div class="serow"><button id="se-share">Share score</button><button id="se-home">Home</button></div>
+      <div class="serow"><button id="se-share">📤 Share score</button><button id="se-levels" class="hidden">Pints</button><button id="se-home">Home</button></div>
     </div></div>
+    <div id="a2hs" class="hidden"><span id="a2-txt">Add Celly Belly to your home screen</span><button id="a2-add">Add</button><button id="a2-x" aria-label="Close">✕</button></div>
+  </section>
+
+  <!-- SHOP: one grid, virtual coins only -->
+  <section id="store" class="screen hidden">
+    <header class="nhtop"><button class="npill icon" id="st-back" aria-label="Back">‹</button><b class="pltitle">SHOP</b><span class="npill" id="st-coins">🪙 0</span></header>
+    <div id="st-grid"></div>
+    <div class="stfoot"><button class="nlink2" id="st-ad">▶ Watch ad for 50 🪙 <small>(placeholder)</small></button><small>Virtual coins only — earned in-game. No real money, no purchases.</small></div>
+    <div id="adstub" class="hidden"><div><small>AD PLACEHOLDER</small><b id="ad-count">3</b><p>No real ad here yet — this is where a rewarded ad would play.</p></div></div>
+  </section>
+
+  <!-- WEEKLY TOURNAMENT (local personal bests) -->
+  <section id="weekly" class="screen hidden">
+    <header class="nhtop"><button class="npill icon" id="wk-back" aria-label="Back">‹</button><b class="pltitle">WEEKLY</b><span class="npill" id="wk-left">7d left</span></header>
+    <div class="wkbody">
+      <h2 id="wk-title">Tournament #1</h2>
+      <p class="wknote">Same seeded targets for everyone this week. Board shows <b>your personal bests on this device</b>.</p>
+      <ol id="wk-board"></ol>
+      <div id="wk-badges"></div>
+      <button class="nplay small" id="wk-go">PLAY WEEKLY</button>
+    </div>
+  </section>
+
+  <!-- BEER LEAGUE level path -->
+  <section id="pints-path" class="screen hidden">
+    <header class="nhtop"><button class="npill icon" id="pl-back" aria-label="Home">‹</button><b class="pltitle">BEER LEAGUE</b><span class="npill" id="pl-coins">🪙 0</span></header>
+    <div class="plbar"><span id="pl-stars">★ 0</span><button class="npill" id="pl-skins">🛒 Shop</button></div>
+    <div id="pl-path"></div>
+    <div class="plfoot"><button class="nplay small" id="pl-go">▶ PINT 1</button></div>
   </section>
 
   <!-- MANAGER HUB -->
@@ -258,6 +293,7 @@
 <script src="js/clip.js"></script>
 <script src="js/flick.js"></script>
 <script src="js/shoot.js"></script>
+<script src="js/meta.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/intro.js"></script>
 <script src="js/main.js"></script>

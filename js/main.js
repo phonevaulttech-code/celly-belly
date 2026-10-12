@@ -190,6 +190,8 @@ IL.Main = (function () {
     IL.Shoot.init();
     // the old cold open (IL.Intro) is kept in code but out of the main flow
     const io = document.getElementById('intro'); if (io) io.remove();
+    // PWA: offline play + add to home screen (service workers need http/https, so file:// just skips this)
+    if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
   return { startShift, quit, toggleBoss, toggleMute, toggleStreamer, get shift() { return shift; }, get bossOn() { return bossOn; }, lastShare: null };

@@ -1,4 +1,4 @@
-# Top Shelf, Bottom Barrel (working title — change `IL.GAME_TITLE` in js/data.js)
+# Celly Belly — Top Shelf, Bottom Barrel
 
 **Main game:** one-finger puck flinging (Pop Shot style). Launch → home → big **PLAY** starts your next level.
 - Flick up from anywhere to shoot; drag length = power (ring meter), bow your swipe sideways for spin/curve; dotted aim preview includes board bounces.
@@ -9,7 +9,7 @@
 - Clip it (🎬), streamer mode (🎥 / Shift+S), boss key (📊 / B), mute (🔊 / M).
 - **Rink Manager** (ICELOCK Zamboni side gig) is still there from the home screen.
 
-# ICELOCK — Zamboni Shift 🧊🫧
+# Celly Belly — Top Shelf, Bottom Barrel
 
 **v2 — cozy Rink Manager.** Charming "bubble people" (round bodies, big eyes, hats, scarves, waddles,
 emotes ❤️💧💢♪) fill the seats, skate the ice, coach the benches and ref the game. Each event is a short

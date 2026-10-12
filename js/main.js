@@ -187,14 +187,16 @@ IL.Main = (function () {
       if (flavorT % 3 === 0) IL.FX.sign(); else if (flavorT % 3 === 1 && IL.Game.state === 'play') IL.FX.chirp();
     }, 4200);
     IL.UI.show('home');
-    IL.Intro.run();
+    IL.Shoot.init();
+    // the old cold open (IL.Intro) is kept in code but out of the main flow
+    const io = document.getElementById('intro'); if (io) io.remove();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
   return { startShift, quit, toggleBoss, toggleMute, toggleStreamer, get shift() { return shift; }, get bossOn() { return bossOn; }, lastShare: null };
 })();
 /* test / debug hooks */
 window.ICELOCK = {
-  flick: () => IL.Flick.debug(), get title() { return IL.GAME_TITLE; },
+  flick: () => IL.Flick.debug(), shoot: () => IL.Shoot.debug(), get title() { return IL.GAME_TITLE; },
   get state() { return IL.Game.state; }, get pct() { return IL.Game.pct; }, get screen() { return IL.UI.current; },
   get job() { return IL.Jobs.active ? IL.Jobs.type : (IL.Game.state !== 'idle' ? 'zamboni' : null); },
   get mode() { return IL.Main.shift ? IL.Main.shift.mode : null; },

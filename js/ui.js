@@ -14,7 +14,7 @@ IL.UI = (function () {
     document.querySelectorAll('.screen').forEach(s => s.classList.toggle('hidden', s.id !== id));
     current = id;
     if (id === 'hub') renderHub();
-    if (id === 'home') renderHome();
+    if (id === 'home') { renderHome(); if (IL.Shoot && document.getElementById('nh-art')) IL.Shoot.renderHome(); }
     if (id === 'venues') renderVenues();
     if (id === 'shop') renderShop();
   }

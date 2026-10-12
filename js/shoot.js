@@ -512,5 +512,5 @@ IL.Shoot = (function () {
   // inverse of aimFrom for a given flick duration: returns a screen swipe vector that lands on (u, v)
   function swipeFor(u, v, ms) { const speed0 = 1; let len = 150; for (let i = 0; i < 30; i++) { const power = clamp(0.6 + (len / ms) * 0.3, 0.65, 1.2); len = (v + 0.06) / (1.4 * (0.92 + 0.08 * power)) * Math.min(W, 420); }
     const dy = -len / Math.sqrt(1 + (u / 1.9) ** 2), dx = u / 1.9 * -dy; return { dx, dy }; }
-  return { skin, skinSave, init, start, stop, debug, renderHome, _fire, swipeFor, aimAt, openPints, openSkins, shareCard, PINTS, SKINS, buildPint, _fireAt: (i) => { const a = aimAt(i); if (a) fire({ u: a.u, v: a.v, curve: 0, power: 1 }); }, _noWob: () => { if (S) S.wob = 0; }, _end: () => { if (S) { S.pucks = 0; end(); } }, get active() { return !!S; } };
+  return { skin, skinSave, init, start, stop, debug, renderHome, _fire, swipeFor, aimAt, openPints, openSkins, shareCard, PINTS, SKINS, buildPint, _fireAt: (i) => { const a = aimAt(i); if (a) fire({ u: a.u, v: a.v, curve: 0, power: 1 }); }, _noWob: () => { if (S) S.wob = 0; }, _pucks: (n) => { if (S) { S.pucks = n; hud(); } }, _end: () => { if (S) { S.pucks = 0; end(); } }, get active() { return !!S; } };
 })();

@@ -22,7 +22,9 @@ IL.Shoot = (function () {
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.width = W + 'px'; cv.style.height = H + 'px';
     f = Math.min(W * 0.86, H * 0.62) * ZG / (GW * 2);           // goal fills most of the width
     hz = H * 0.63 - CAMH * f / ZG;                               // goal line sits ~63% down
+    arena = null;
   }
+  let arena = null;
   const P = (X, Y, Z) => ({ x: W / 2 + X * f / Z, y: hz + (CAMH - Y) * f / Z, k: f / Z });
   const UV = (u, v) => P(u * GW, v * GH, ZG);
 
@@ -39,12 +41,40 @@ IL.Shoot = (function () {
     cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(frame);
   }
   function stop(silent) { cancelAnimationFrame(raf); S = null; drag = null; if (!silent) IL.UI.show('home'); }
+  /* ---------- the goalie: chunky arcade tender. Shuffles, reacts to the shot, butterfly-drops, saves body shots ---------- */
+  function makeGoalie(level, home, react) {
+    return { x: home, home, amp: 0.05 + Math.min(0.12, level * 0.015), sp: 1.3 + Math.min(1, level * 0.08), drop: 0, saveT: 0, glove: 0, react: !!react,
+      speed: react ? Math.min(1.3, 0.25 + level * 0.07) : 0, delay: Math.max(0.12, 0.28 - level * 0.012), canDrop: level >= 3 };
+  }
+  // gear in goal-mouth units (u: -1..1 post to post, v: 0..1 ice to bar)
+  function gear(gl) {
+    const x = gl.x, d = gl.drop, G = [];
+    G.push({ t: 'r', u: x, v: 0.5 - 0.18 * d, hu: 0.2, hv: 0.22, part: 'body' });
+    G.push({ t: 'c', u: x, v: 0.8 - 0.25 * d, r: 0.1, part: 'mask' });
+    if (d > 0.5) G.push({ t: 'r', u: x, v: 0.09, hu: 0.4, hv: 0.09, part: 'pads' });
+    else { G.push({ t: 'r', u: x - 0.17, v: 0.2, hu: 0.09, hv: 0.2, part: 'pads' }); G.push({ t: 'r', u: x + 0.17, v: 0.2, hu: 0.09, hv: 0.2, part: 'pads' }); }
+    G.push({ t: 'c', u: x + 0.36, v: 0.58 - 0.15 * d, r: 0.12, part: 'glove' });
+    G.push({ t: 'r', u: x - 0.34, v: 0.45 - 0.12 * d, hu: 0.07, hv: 0.14, part: 'blocker' });
+    return G;
+  }
+  function gearHit(gl, u, v) {
+    const pu = PUCK / GW, pv = PUCK / GH;
+    for (const q of gear(gl)) {
+      if (q.t === 'r' ? Math.abs(u - q.u) < q.hu + pu && Math.abs(v - q.v) < q.hv + pv : Math.hypot((u - q.u) * GW, (v - q.v) * GH) < q.r * GW + PUCK) return q.part;
+    }
+    return null;
+  }
   function nextTarget() {
-    const lvl = S.hits;                                         // difficulty follows total hits this run
-    let i; do { i = (S.r() * SPOTS.length) | 0; } while (i === S.lastSpot || (lvl < 2 && i === 3));
-    S.lastSpot = i; const sp = SPOTS[i];
-    S.target = { u: sp.u, v: sp.v, name: sp.name, r: Math.max(0.124, 0.236 - lvl * 0.006), pop: 0 };   // ~18% bigger than v1
-    S.goalie = lvl >= 6 ? { u: 0, amp: Math.min(0.5, 0.2 + (lvl - 6) * 0.02), sp: Math.min(2.2, 1.0 + (lvl - 6) * 0.05), w: 0.42, h: 0.62 } : null;   // slower ramp
+    const lvl = S.streak, home = (S.r() - 0.5) * 0.5;               // difficulty follows the streak
+    const gl = makeGoalie(lvl, home, true);
+    const holes = [
+      { u: home + 0.72, v: 0.8, name: 'GLOVE SIDE HIGH' }, { u: home - 0.62, v: 0.86, name: 'TOP SHELF' },
+      { u: home - 0.7, v: 0.15, name: 'BLOCKER LOW' }, { u: home + 0.72, v: 0.15, name: 'GLOVE LOW' }, { u: home, v: 0.07, name: 'FIVE-HOLE', five: 1 }]
+      .filter(h => Math.abs(h.u) <= 0.82 && !(h.five && gl.canDrop));   // once he can butterfly, the five-hole closes
+    let i; do { i = (S.r() * holes.length) | 0; } while (holes.length > 1 && holes[i].name === S.lastHole);
+    const h = holes[i]; S.lastHole = h.name;
+    S.target = { u: h.u, v: h.v, name: h.name, r: Math.max(0.124, 0.236 - S.hits * 0.006), pop: 0 };   // keeps the "hair easier" sizing
+    S.goalie = gl;
   }
 
   /* ---------- input: swipe direction + speed = aim + power; sideways bow = light curve ---------- */
@@ -80,7 +110,7 @@ IL.Shoot = (function () {
     if (S.mode === 'pints') { const d = drift(); fu += d.u; fv += d.v; S.pucks--; S.shotKnocks = 0; }
     else if (S.target) {                                            // gentle aim assist: only pulls shots that were already close
       const t = S.target, R0 = t.r * 2.2, dd = Math.hypot((fu - t.u) * GW, (fv - t.v) * GH);
-      if (dd < R0) { const pull = 0.45 * (1 - dd / R0) + 0.15; fu += (t.u - fu) * pull; fv += (t.v - fv) * pull; }
+      if (dd < R0 && fv < 0.95) { const pull = 0.45 * (1 - dd / R0) + 0.15; fu += (t.u - fu) * pull; fv += (t.v - fv) * pull; }
     }
     S.puck = { a, t: 0, T: 0.42 / a.power, fu, fv, done: false, hitSet: [], X: 0, Y: 0, Z: PZ, trail: [] };
     IL.Audio.slap(clamp(a.power - 0.4, 0, 1)); IL.Audio.haptic(12); if (S.mode === 'pints') hud();
@@ -93,7 +123,7 @@ IL.Shoot = (function () {
     const postD = Math.abs(Math.abs(X) - GW), barD = Math.abs(Y - GH);
     const onPost = postD < POST + PUCK && Y < GH + POST, onBar = barD < POST + PUCK && Math.abs(X) < GW + POST;
     let out = 'miss';
-    if (gl && inMouth) { const gx = gl.x * GW, hw = gl.w * GW / 2, hh = gl.h * GH; if (Math.abs(X - gx) < hw && Y < hh && !(Math.abs(X - gx) < 0.07 && Y < 0.2)) out = 'save'; }
+    if (gl && inMouth) { const part = gearHit(gl, X / GW, Y / GH); if (part) { out = 'save'; p.savedBy = part; } }
     if (out !== 'save') {
       const td = Math.hypot(X - tg.u * GW, Y - tg.v * GH);
       if (onBar && Y <= GH) out = 'bardown';                        // off the crossbar and in: always BAR DOWN
@@ -105,6 +135,7 @@ IL.Shoot = (function () {
     const mult = () => 1 + Math.floor(S.streak / 3);
     if (out === 'hit' || out === 'bardown') {
       S.streak++; S.hits++; S.bestStreak = Math.max(S.bestStreak, S.streak);
+      if (S.streak === 3 || (S.streak > 3 && S.streak % 5 === 0)) { setTimeout(() => S && say('ON FIRE!', 'fire'), out === 'bardown' ? 700 : 450); IL.Audio.lane(); }
       const big = out === 'bardown' || tg.r <= 0.13 || S.streak % 5 === 0;
       const pts = (out === 'bardown' ? 250 : 100) * mult(); S.score += pts;
       if (out === 'bardown') { S.bars++; IL.Audio.ping(); setTimeout(() => IL.Meta.horn(), 120); say('BAR DOWN  +' + pts, 'gold'); S.stop = 0.14; S.shake = 5; IL.Audio.haptic([25, 30, 50]); }
@@ -119,7 +150,10 @@ IL.Shoot = (function () {
     } else if (out === 'ding') {
       IL.Audio.ping(); S.dings++; S.score += 25; S.pucks--; say('DING!  SO CLOSE', 'soft'); IL.Audio.haptic([10, 40, 10]); S.stop = 0.06;
     } else {
-      S.streak = 0; S.pucks--; if (out === 'save') { IL.Audio.thunk(); say('SAVE', 'bad'); if (S.goalie) S.goalie.flash = 0.4; } else { IL.Audio.board(0.4); say('WIDE', 'bad'); }
+      const wasFire = S.streak >= 3; S.streak = 0; S.pucks--;
+      if (out === 'save') { IL.Audio.thunk(); IL.Audio.cheer(false); say(p.savedBy === 'glove' ? 'ROBBED! GLOVE SAVE' : wasFire ? 'ROBBED! FIRE’S OUT' : 'ROBBED!', 'robbed'); S.stop = 0.12; if (S.goalie) { S.goalie.saveT = 0.7; S.goalie.glove = p.savedBy === 'glove' ? 1 : 0; } if (p.savedBy === 'glove') p.caught = true; }
+      else { IL.Audio.board(0.4); say('WIDE', 'bad'); }
+      if (wasFire || S.hits) setTimeout(() => S && !S.ended && !S.puck && nextTarget(), 650);   // streak broke: goalie cools off with it
       IL.Audio.haptic(30);
     }
     hud();
@@ -134,7 +168,14 @@ IL.Shoot = (function () {
   }
   function update(dt) {
     S.t += dt; S.shake = Math.max(0, S.shake - dt * 30); S.celly = Math.max(0, S.celly - dt);
-    if (S.goalie) { const g = S.goalie; g.x = Math.sin(S.t * g.sp) * g.amp; g.flash = Math.max(0, (g.flash || 0) - dt); }
+    if (S.goalie) {
+      const g = S.goalie, p0 = S.puck; g.saveT = Math.max(0, g.saveT - dt);
+      if (p0 && !p0.done && g.react && p0.t > g.delay) {            // read the shot, slide over, maybe drop
+        const want = clamp(p0.fu, -0.7, 0.7), dx = want - g.x; g.x += Math.sign(dx) * Math.min(Math.abs(dx), g.speed * dt);
+        if (g.canDrop && p0.fv < 0.35) g.drop = Math.min(1, g.drop + dt * 5);
+      } else if (!p0 && !g.saveT) { g.x += ((g.home + Math.sin(S.t * g.sp) * g.amp) - g.x) * Math.min(1, dt * 4); g.drop = Math.max(0, g.drop - dt * 3); }
+      else if (!g.react) g.x = g.home + Math.sin(S.t * g.sp) * g.amp;
+    }
     if (S.target && S.target.pop) S.target.pop = Math.max(0, S.target.pop - dt * 2.5);
     const p = S.puck;
     if (p) {
@@ -143,11 +184,12 @@ IL.Shoot = (function () {
         p.Z = PZ + (ZG - PZ) * k; p.X = (p.fu * GW) * k + p.a.curve * GW * 0.6 * Math.sin(Math.PI * k) * -1;
         p.Y = p.fv * GH * k + Math.sin(Math.PI * k) * 0.08 * p.fv;
         if (S.mode === 'pints') pintCollide(p);
-        if (!p.done && k >= 1) { p.done = true; if (S.mode === 'pints') { p.out = Math.abs(p.X) < GW && p.Y < GH ? 'goal' : 'miss'; if (!p.hitSet.length) { IL.Audio.board(0.3); say(p.out === 'goal' ? 'IN THE NET — HIT THE STUFF' : 'MISSED', 'bad'); } } else resolve(p); p.t2 = 0; }
+        if (!p.done && k >= 1) { p.done = true; if (S.mode === 'pints') { p.out = Math.abs(p.X) < GW && p.Y < GH ? 'goal' : 'miss'; if (S.goalie && p.out === 'goal' && gearHit(S.goalie, p.X / GW, p.Y / GH)) { p.out = 'save'; S.goalie.saveT = 0.7; say('ROBBED!', 'robbed'); IL.Audio.thunk(); } if (!p.hitSet.length && p.out !== 'save') { IL.Audio.board(0.3); say(p.out === 'goal' ? 'IN THE NET — HIT THE STUFF' : 'MISSED', 'bad'); } } else resolve(p); p.t2 = 0; }
       } else {
         p.t2 += dt; const o = p.out;
         if (o === 'hit' || o === 'bardown' || o === 'goal' || o === 'postin') { p.Z = Math.min(ZG + 0.7, p.Z + dt * 4); p.Y = Math.max(0, p.Y - dt * (o === 'bardown' ? 4 : 1.5)); }
         else if (o === 'miss') { p.Z += dt * 6; }
+        else if (p.caught) { p.hide = true; }
         else { p.Z = Math.max(PZ + 0.8, p.Z - dt * 3); p.Y = Math.max(0, p.Y - dt * 2); p.X += (o === 'ding' ? Math.sign(p.X || 1) : 0) * dt; }
         if (p.t2 > 0.5) { S.puck = null; if (S.mode === 'pints') pintCheck(); else if (S.pucks <= 0) end(); }
       }
@@ -163,14 +205,10 @@ IL.Shoot = (function () {
     const g = ctx; g.setTransform(dpr, 0, 0, dpr, 0, 0);
     const sx = S.shake ? (Math.random() - 0.5) * S.shake : 0, sy = S.shake ? (Math.random() - 0.5) * S.shake : 0;
     g.save(); g.translate(sx, sy);
-    // arena backdrop
-    const bg = g.createLinearGradient(0, 0, 0, hz + 40); bg.addColorStop(0, '#0d1b33'); bg.addColorStop(1, '#1d3358'); g.fillStyle = bg; g.fillRect(-10, -10, W + 20, H + 20);
-    // boards + glass behind the net
-    const bTop = P(0, 1.1, ZG + 3.5).y, bBot = P(0, 0, ZG + 3.5).y;
-    g.fillStyle = 'rgba(255,255,255,.06)'; g.fillRect(0, bTop - 70, W, 70);
-    g.fillStyle = '#f2f5f8'; g.fillRect(0, bTop, W, bBot - bTop); g.fillStyle = '#f5c518'; g.fillRect(0, bBot - 4, W, 4);
-    // ice
-    const ice = g.createLinearGradient(0, bBot, 0, H); ice.addColorStop(0, '#e7eef5'); ice.addColorStop(1, '#ffffff'); g.fillStyle = ice; g.fillRect(0, bBot, W, H - bBot);
+    if (!arena) arena = buildArena();
+    g.drawImage(arena, 0, 0, W, H);
+    // a few camera flashes in the crowd
+    if (Math.random() < 0.25) { const fx = Math.random() * W, fy = 40 + Math.random() * (P(0, 1.1, ZG + 3.5).y - 110); g.fillStyle = 'rgba(255,255,255,.9)'; g.beginPath(); g.arc(fx, fy, 1.5 + Math.random() * 1.5, 0, 7); g.fill(); }
     // goal line + crease
     const gl0 = P(-6, 0, ZG), gl1 = P(6, 0, ZG); g.strokeStyle = '#d62839'; g.lineWidth = 2; g.beginPath(); g.moveTo(gl0.x, gl0.y); g.lineTo(gl1.x, gl1.y); g.stroke();
     g.beginPath(); for (let i = 0; i <= 24; i++) { const a = Math.PI * i / 24, q = P(Math.cos(a) * 1.83, 0, ZG - Math.sin(a) * 1.4); i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); } g.closePath();
@@ -178,7 +216,7 @@ IL.Shoot = (function () {
     // net: back + mesh
     const D = 1.0, bl = P(-GW, 0, ZG + D), br = P(GW, 0, ZG + D), btl = P(-GW * 0.8, GH * 0.75, ZG + D * 0.6), btr = P(GW * 0.8, GH * 0.75, ZG + D * 0.6);
     const fl = UV(-1, 0), fr = UV(1, 0), tl = UV(-1, 1), tr = UV(1, 1);
-    g.fillStyle = 'rgba(255,255,255,.55)'; g.beginPath(); g.moveTo(tl.x, tl.y); g.lineTo(tr.x, tr.y); g.lineTo(btr.x, btr.y); g.lineTo(br.x, br.y); g.lineTo(bl.x, bl.y); g.lineTo(btl.x, btl.y); g.closePath(); g.fill();
+    g.fillStyle = 'rgba(236,244,255,.8)'; g.beginPath(); g.moveTo(tl.x, tl.y); g.lineTo(tr.x, tr.y); g.lineTo(btr.x, btr.y); g.lineTo(br.x, br.y); g.lineTo(bl.x, bl.y); g.lineTo(btl.x, btl.y); g.closePath(); g.fill();
     g.strokeStyle = 'rgba(70,90,120,.22)'; g.lineWidth = 1;
     for (let i = 1; i < 14; i++) { const k = i / 14; g.beginPath(); g.moveTo(bl.x + (br.x - bl.x) * k, bl.y); g.lineTo(btl.x + (btr.x - btl.x) * k, btl.y); g.lineTo(tl.x + (tr.x - tl.x) * k, tl.y); g.stroke(); }
     for (let i = 1; i < 8; i++) { const k = i / 8; g.beginPath(); g.moveTo(bl.x + (btl.x - bl.x) * k, bl.y + (btl.y - bl.y) * k); g.lineTo(br.x + (btr.x - br.x) * k, br.y + (btr.y - br.y) * k); g.stroke(); }
@@ -187,15 +225,22 @@ IL.Shoot = (function () {
     if (S.target && S.mode !== 'pints') drawTarget(g, S.target);
     // posts + crossbar
     const pw = POST * 2 * f / ZG;
-    g.strokeStyle = '#d62839'; g.lineWidth = pw; g.lineCap = 'round';
+    g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = '#0a0c14'; g.lineWidth = pw + 4; g.beginPath(); g.moveTo(fl.x, fl.y); g.lineTo(tl.x, tl.y); g.lineTo(tr.x, tr.y); g.lineTo(fr.x, fr.y); g.stroke();
+    g.strokeStyle = '#ff1f35'; g.lineWidth = pw;
     g.beginPath(); g.moveTo(fl.x, fl.y); g.lineTo(tl.x, tl.y); g.lineTo(tr.x, tr.y); g.lineTo(fr.x, fr.y); g.stroke();
-    g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = pw * 0.25; g.beginPath(); g.moveTo(fl.x - pw * 0.2, fl.y); g.lineTo(tl.x - pw * 0.2, tl.y + pw * 0.2); g.lineTo(tr.x, tr.y - pw * 0.2); g.stroke();
+    g.strokeStyle = 'rgba(255,255,255,.6)'; g.lineWidth = pw * 0.25; g.beginPath(); g.moveTo(fl.x - pw * 0.2, fl.y); g.lineTo(tl.x - pw * 0.2, tl.y + pw * 0.2); g.lineTo(tr.x, tr.y - pw * 0.2); g.stroke();
     if (S.objs) S.objs.slice().sort((a, b) => b.Z - a.Z).forEach(o => drawObj(g, o));
     // aim reticle (subtle) while dragging
-    if (drag && !S.puck) { const a = aimFrom(drag), d = S.mode === 'pints' ? drift() : { u: 0, v: 0 }; if (a) { const c = UV(a.u + a.curve * 0.5 + d.u, a.v + d.v); g.strokeStyle = 'rgba(13,27,51,.45)'; g.lineWidth = 1.5; g.setLineDash([3, 4]); g.beginPath(); g.arc(c.x, c.y, 9, 0, 7); g.stroke(); g.setLineDash([]); } }
+    if (drag && !S.puck) { const a = aimFrom(drag), d = S.mode === 'pints' ? drift() : { u: 0, v: 0 }; if (a) { const c = UV(a.u + a.curve * 0.5 + d.u, a.v + d.v); g.strokeStyle = '#ffe14a'; g.lineWidth = 2.5; g.setLineDash([4, 4]); g.beginPath(); g.arc(c.x, c.y, 9, 0, 7); g.stroke(); g.setLineDash([]); } }
     // puck
     const p = S.puck;
-    if (p) { p.trail.forEach((q, i) => { const s = P(q[0], q[1], q[2]); g.fillStyle = 'rgba(13,27,51,' + (i / p.trail.length * 0.18) + ')'; g.beginPath(); g.arc(s.x, s.y, PUCK * s.k * 0.9, 0, 7); g.fill(); }); drawPuck(g, p.X, p.Y, p.Z); }
+    if (p && !p.hide) {
+      const fire = S.streak >= 3 && S.mode !== 'pints';
+      if (fire) { g.save(); g.globalCompositeOperation = 'lighter'; p.trail.forEach((q, i) => { const s = P(q[0], q[1], q[2]), k = i / p.trail.length, r = PUCK * s.k * (1.2 + k * 1.3);
+        const gr = g.createRadialGradient(s.x, s.y, 0, s.x, s.y, r * 1.6); gr.addColorStop(0, 'rgba(255,240,150,' + 0.9 * k + ')'); gr.addColorStop(0.45, 'rgba(255,120,20,' + 0.7 * k + ')'); gr.addColorStop(1, 'rgba(255,40,0,0)');
+        g.fillStyle = gr; g.beginPath(); g.arc(s.x + (Math.random() - 0.5) * r * 0.4, s.y - r * 0.3, r * 1.6, 0, 7); g.fill(); }); g.restore(); }
+      else p.trail.forEach((q, i) => { const s = P(q[0], q[1], q[2]); g.fillStyle = 'rgba(30,60,140,' + (i / p.trail.length * 0.22) + ')'; g.beginPath(); g.arc(s.x, s.y, PUCK * s.k * 0.9, 0, 7); g.fill(); });
+      drawPuck(g, p.X, p.Y, p.Z); }
     else if (!S.ended && S.pucks > 0) drawPuck(g, 0, 0, PZ);
     // shooter's stick blade (we're right behind him)
     drawStick(g);
@@ -204,24 +249,83 @@ IL.Shoot = (function () {
     if (!S.shots && !drag) { const k = (S.t * 0.8) % 1, c = P(0, 0, PZ); g.globalAlpha = 1 - k; g.fillStyle = '#0d1b33'; g.beginPath(); g.arc(c.x, c.y - 40 - k * 90, 7, 0, 7); g.fill(); g.globalAlpha = 1; }
     g.restore();
   }
+  // NHL Hitz-inspired (original art): dark arena, spotlights, crowd silhouettes, chrome glass, dasher ads, glowing ice
+  function buildArena() {
+    const c = document.createElement('canvas'); c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); const g = c.getContext('2d'); g.scale(dpr, dpr);
+    const bTop = P(0, 1.1, ZG + 3.5).y, bBot = P(0, 0, ZG + 3.5).y, rr = rng(42);
+    const sky = g.createLinearGradient(0, 0, 0, bTop); sky.addColorStop(0, '#05030f'); sky.addColorStop(0.6, '#1a0d3d'); sky.addColorStop(1, '#2a145e'); g.fillStyle = sky; g.fillRect(0, 0, W, bTop);
+    [[0.15, '#3b6bff'], [0.5, '#ff3df0'], [0.85, '#3b6bff']].forEach(([x, col]) => { const gr = g.createRadialGradient(W * x, 0, 0, W * x, 0, W * 0.55); gr.addColorStop(0, col + '88'); gr.addColorStop(1, col + '00'); g.fillStyle = gr; g.fillRect(0, 0, W, bTop); });
+    // crowd: rows of silhouettes with jersey-colour pops
+    const cols = ['#ff2a3d', '#1a3fd6', '#ffe14a', '#ffffff', '#20e3ff'];
+    for (let row = 0; row < 9; row++) {
+      const y = bTop - 58 - row * 22, s = 1 - row * 0.05;
+      for (let x = -10; x < W + 10; x += 15 * s) {
+        const hx = x + (rr() - 0.5) * 6, hy = y + (rr() - 0.5) * 4;
+        g.fillStyle = 'rgb(' + (18 + row * 3) + ',' + (12 + row * 2) + ',' + (40 + row * 4) + ')';
+        g.beginPath(); g.arc(hx, hy, 5.5 * s, 0, 7); g.fill(); g.beginPath(); IL.R.rr(g, hx - 7 * s, hy + 4 * s, 14 * s, 14 * s, 5); g.fill();
+        if (rr() < 0.22) { g.fillStyle = cols[(rr() * cols.length) | 0]; g.globalAlpha = 0.45 - row * 0.03; g.fillRect(hx - 5 * s, hy + 7 * s, 10 * s, 6 * s); g.globalAlpha = 1; }
+      }
+    }
+    // glass with chrome top rail + reflections
+    g.fillStyle = 'rgba(160,210,255,.10)'; g.fillRect(0, bTop - 62, W, 62);
+    for (let i = 0; i < 6; i++) { g.fillStyle = 'rgba(255,255,255,.07)'; g.beginPath(); const x = i * W / 5 - 20; g.moveTo(x, bTop - 62); g.lineTo(x + 26, bTop - 62); g.lineTo(x + 6, bTop); g.lineTo(x - 20, bTop); g.fill(); }
+    const rail = g.createLinearGradient(0, bTop - 66, 0, bTop - 58); rail.addColorStop(0, '#ffffff'); rail.addColorStop(0.5, '#6f7d93'); rail.addColorStop(1, '#dfe6f0'); g.fillStyle = rail; g.fillRect(0, bTop - 66, W, 6);
+    // dasher boards with original fake ads
+    g.fillStyle = '#f4f7fb'; g.fillRect(0, bTop, W, bBot - bTop);
+    const ads = [['CELLY BELLY', '#e8112d', '#fff'], ['BOTTOM BARREL BREWING', '#1a3fd6', '#ffe14a'], ['TOP SHELF TIRES', '#0a0c14', '#ff8a1f'], ['ICELOCK RINKS', '#ffe14a', '#0a0c14']];
+    const aw = W / 2.6, ah = (bBot - bTop) * 0.72; let ax = -aw * 0.35;
+    for (let i = 0; ax < W; i++, ax += aw + 6) { const [t, bg, fg] = ads[i % ads.length]; g.fillStyle = bg; g.fillRect(ax, bTop + (bBot - bTop - ah) / 2, aw, ah);
+      g.fillStyle = fg; g.font = 'italic 900 ' + Math.max(8, Math.round(ah * 0.62)) + 'px Impact,"Arial Black",sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, ax + aw / 2, bTop + (bBot - bTop) / 2 + 1, aw - 8); }
+    g.fillStyle = '#ffe14a'; g.fillRect(0, bBot - 4, W, 4);
+    // glowing ice with arena-light reflections
+    const ice = g.createLinearGradient(0, bBot, 0, H); ice.addColorStop(0, '#bfe6ff'); ice.addColorStop(0.35, '#e9f7ff'); ice.addColorStop(1, '#ffffff'); g.fillStyle = ice; g.fillRect(0, bBot, W, H - bBot);
+    [[0.15, '#7aa2ff'], [0.5, '#ff9cf5'], [0.85, '#7aa2ff']].forEach(([x, col]) => { const gr = g.createLinearGradient(0, bBot, 0, bBot + (H - bBot) * 0.7); gr.addColorStop(0, col + '66'); gr.addColorStop(1, col + '00'); g.fillStyle = gr; g.beginPath(); g.moveTo(W * x - 20, bBot); g.lineTo(W * x + 20, bBot); g.lineTo(W * x + 60, H * 0.95); g.lineTo(W * x - 60, H * 0.95); g.fill(); });
+    g.save(); g.globalAlpha = 0.12; g.translate(0, bBot * 2); g.scale(1, -1); g.drawImage(c, 0, bTop * dpr, c.width, (bBot - bTop) * dpr, 0, bTop, W, bBot - bTop); g.restore();   // board reflection
+    // a hint of the blue line far behind and the near red line glow
+    g.fillStyle = 'rgba(232,17,45,.15)'; g.fillRect(0, H - 40, W, 3);
+    return c;
+  }
   function drawTarget(g, t) {
     const c = UV(t.u, t.v), r = t.r * f / ZG * (1 + t.pop * 0.4);
-    g.globalAlpha = 1 - t.pop * 0.7;
+    const fl = 0.75 + 0.25 * Math.sin(S.t * 9); g.save(); g.shadowColor = '#ffe14a'; g.shadowBlur = 16 * fl; g.globalAlpha = (1 - t.pop * 0.7) * (0.85 + 0.15 * fl);
     g.fillStyle = '#ffffff'; g.beginPath(); g.arc(c.x, c.y, r, 0, 7); g.fill();
     g.strokeStyle = '#d62839'; g.lineWidth = r * 0.18; g.beginPath(); g.arc(c.x, c.y, r * 0.86, 0, 7); g.stroke();
     g.fillStyle = '#d62839'; g.beginPath(); g.arc(c.x, c.y, r * 0.38, 0, 7); g.fill();
-    g.globalAlpha = 1;
-    if (!S.shots && !t.pop) { g.fillStyle = 'rgba(13,27,51,.7)'; g.font = '700 11px system-ui,sans-serif'; g.textAlign = 'center'; g.fillText(t.name, c.x, c.y + r + 14); }
+    g.restore(); g.globalAlpha = 1;
+    if (!t.pop) { g.fillStyle = '#ffe14a'; g.strokeStyle = '#0a0c14'; g.lineWidth = 3; g.font = 'italic 900 12px Impact,"Arial Black",sans-serif'; g.textAlign = 'center'; g.strokeText(t.name, c.x, c.y + r + 14); g.textAlign = 'center'; g.fillText(t.name, c.x, c.y + r + 14); }
   }
   function drawGoalie(g, gl) {
-    const c = UV(gl.x, 0), k = f / ZG, w = gl.w * GW * k, h = gl.h * GH * k;
-    g.fillStyle = gl.flash ? '#3b5b8f' : '#1d3358';
-    // pads with a five-hole gap
-    g.beginPath(); IL.R.rr(g, c.x - w / 2, c.y - h * 0.36, w * 0.44, h * 0.36, 6); g.fill();
-    g.beginPath(); IL.R.rr(g, c.x + w * 0.06, c.y - h * 0.36, w * 0.44, h * 0.36, 6); g.fill();
-    g.beginPath(); IL.R.rr(g, c.x - w * 0.4, c.y - h, w * 0.8, h * 0.7, 14); g.fill();
-    g.fillStyle = '#f2f5f8'; g.beginPath(); g.arc(c.x, c.y - h * 1.02, w * 0.17, 0, 7); g.fill();
-    g.fillStyle = '#d62839'; g.fillRect(c.x - w * 0.4, c.y - h * 0.62, w * 0.8, h * 0.06);
+    const k = f / ZG, U = (u, v) => UV(u, v), x = gl.x, d = gl.drop, sv2 = gl.saveT > 0 ? Math.sin(gl.saveT / 0.7 * Math.PI) : 0;
+    const OL = '#0a0c14', lw = Math.max(2.5, k * 0.018);
+    const box = (u, v, hu, hv, fill, rad) => { const a = U(u - hu, v + hv), b = U(u + hu, v - hv); g.beginPath(); IL.R.rr(g, a.x, a.y, b.x - a.x, b.y - a.y, rad || 6); g.fillStyle = fill; g.fill(); g.lineWidth = lw; g.strokeStyle = OL; g.stroke(); };
+    const metal = (y0, y1, c0, c1) => { const gr = g.createLinearGradient(0, y0, 0, y1); gr.addColorStop(0, c0); gr.addColorStop(0.5, c1); gr.addColorStop(0.52, c0); gr.addColorStop(1, c1); return gr; };
+    g.save();
+    // shadow on the ice
+    const sh = U(x, 0); g.fillStyle = 'rgba(10,20,60,.25)'; g.beginPath(); g.ellipse(sh.x, sh.y + 3, 0.5 * GW * k * (1 + d * 0.4), 7, 0, 0, 7); g.fill();
+    // pads
+    const padFill = metal(U(0, 0.4).y, U(0, 0).y, '#ffffff', '#c9d3e3');
+    if (d > 0.5) { box(x - 0.2, 0.09, 0.2, 0.09, padFill, 8); box(x + 0.2, 0.09, 0.2, 0.09, padFill, 8); [x - 0.2, x + 0.2].forEach(u => box(u, 0.09, 0.16, 0.025, '#e8112d', 3)); }
+    else { [x - 0.17, x + 0.17].forEach(u => { box(u, 0.2, 0.09, 0.2, padFill, 9); box(u, 0.26, 0.09, 0.03, '#e8112d', 2); box(u, 0.12, 0.09, 0.025, '#1a3fd6', 2); }); }
+    // body / jersey (original design: red with a chrome stripe and a big belly)
+    const bv = 0.5 - 0.18 * d; box(x, bv, 0.22, 0.23, metal(U(0, bv + 0.23).y, U(0, bv - 0.23).y, '#ff2a3d', '#b00d20'), 16);
+    box(x, bv - 0.06, 0.22, 0.035, metal(U(0, bv).y, U(0, bv - 0.1).y, '#f4f7fb', '#8796ad'), 3);
+    const nb = U(x, bv + 0.05); g.fillStyle = '#fff'; g.font = 'italic 900 ' + Math.round(k * 0.13) + 'px Impact,"Arial Black",sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = lw; g.strokeStyle = OL; g.strokeText('00', nb.x, nb.y); g.fillText('00', nb.x, nb.y);
+    // blocker (stick side) and glove (trapper), glove snaps up on a save
+    const gv = 0.58 - 0.15 * d + sv2 * (gl.glove ? 0.12 : 0.04), gu = x + 0.36 + sv2 * 0.05;
+    box(x - 0.34, 0.45 - 0.12 * d, 0.075, 0.15, metal(U(0, 0.6).y, U(0, 0.3).y, '#1a3fd6', '#0b1f7a'), 5);
+    const gc = U(gu, gv); g.beginPath(); g.arc(gc.x, gc.y, 0.125 * GW * k, 0, 7); g.fillStyle = metal(gc.y - 20, gc.y + 20, '#1a3fd6', '#0b1f7a'); g.fill(); g.lineWidth = lw; g.strokeStyle = OL; g.stroke();
+    g.beginPath(); g.arc(gc.x, gc.y, 0.07 * GW * k, 0, 7); g.fillStyle = '#f4f7fb'; g.fill();
+    if (gl.glove && sv2 > 0.2) { g.fillStyle = '#05080e'; g.beginPath(); g.ellipse(gc.x, gc.y, 0.04 * GW * k, 0.02 * GW * k, 0, 0, 7); g.fill(); }
+    // stick
+    const s0 = U(x - 0.34, 0.33 - 0.12 * d), s1 = U(x - 0.2, 0.02); g.strokeStyle = OL; g.lineWidth = lw * 2.4; g.beginPath(); g.moveTo(s0.x, s0.y); g.lineTo(s1.x, s1.y); g.lineTo(s1.x + 0.22 * GW * k, s1.y); g.stroke();
+    g.strokeStyle = '#d8b25a'; g.lineWidth = lw * 1.2; g.stroke();
+    // mask with cage
+    const m = U(x, 0.8 - 0.25 * d), mr = 0.1 * GW * k; g.beginPath(); g.arc(m.x, m.y, mr, 0, 7); g.fillStyle = metal(m.y - mr, m.y + mr, '#ffffff', '#aab6c8'); g.fill(); g.lineWidth = lw; g.strokeStyle = OL; g.stroke();
+    g.strokeStyle = '#2a3346'; g.lineWidth = 1.2; for (let i = -2; i <= 2; i++) { g.beginPath(); g.moveTo(m.x + i * mr * 0.28, m.y - mr * 0.1); g.lineTo(m.x + i * mr * 0.28, m.y + mr * 0.8); g.stroke(); }
+    g.beginPath(); g.moveTo(m.x - mr * 0.7, m.y + mr * 0.3); g.lineTo(m.x + mr * 0.7, m.y + mr * 0.3); g.stroke();
+    g.fillStyle = '#e8112d'; g.fillRect(m.x - mr * 0.9, m.y - mr * 0.55, mr * 1.8, mr * 0.2);
+    if (sv2 > 0.1) { g.globalAlpha = sv2; g.strokeStyle = '#7fe7ff'; g.lineWidth = 4; g.beginPath(); g.arc(gc.x, gc.y, 0.2 * GW * k + (1 - sv2) * 30, 0, 7); g.stroke(); g.globalAlpha = 1; }
+    g.restore();
   }
   function drawPuck(g, X, Y, Z) {
     const top = P(X, Y + 0.025, Z), bot = P(X, Y, Z), r = PUCK * top.k;
@@ -287,12 +391,12 @@ IL.Shoot = (function () {
     O.forEach(o => { o.dead = false; o.dt = 0; o.vx = 0; o.vy = 0; o.vz = 0; o.hp = o.hp || 1; o.hitT = 0; });
     const est = (O.some(o => o.k === 'can' && !o.bar) ? 2 : 0) + Math.ceil(O.filter(o => o.bar).length / 2) + O.filter(o => o.k === 'cooler').length * 2 + O.filter(o => o.k === 'cone' || o.k === 'tray').length;
     const pucks = Math.max(est + 1, Math.min(8, est + 3 - Math.floor(tier / 2)));
-    return { li, name: NAMES[tpl] + (tier ? ' ' + ['', 'II', 'III', 'IV', 'V'][tier] : ''), objs: O, pucks, star3: pucks >= 5 ? 2 : 1, wob: Math.min(0.3, 0.025 + li * 0.011) };
+    return { li, goalie: li >= 8 && li % 3 === 2, name: NAMES[tpl] + (tier ? ' ' + ['', 'II', 'III', 'IV', 'V'][tier] : ''), objs: O, pucks, star3: pucks >= 5 ? 2 : 1, wob: Math.min(0.3, 0.025 + li * 0.011) };
   }
   function startPint(li) {
     const L = buildPint(li); labels('PINT');
     S = { mode: 'pints', li, level: L, objs: L.objs, wob: L.wob, score: 0, streak: 0, bestStreak: 0, pucks: L.pucks, maxPucks: L.pucks, shots: 0, hits: 0, bars: 0, dings: 0,
-      puck: null, target: null, goalie: null, t: 0, stop: 0, shake: 0, celly: 0, ended: false, parts: [], stars: 0, r: rng(li + 1) };
+      puck: null, target: null, goalie: L.goalie ? Object.assign(makeGoalie(2, 0, false), { amp: 0.4, sp: 0.9 }) : null, t: 0, stop: 0, shake: 0, celly: 0, ended: false, parts: [], stars: 0, r: rng(li + 1) };
     $('s-end').classList.add('hidden'); IL.UI.show('shoot'); layout(); hud();
     say('PINT ' + (li + 1) + ' · ' + L.name.toUpperCase(), 'soft');
     cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(frame);
@@ -480,12 +584,21 @@ IL.Shoot = (function () {
     $('home-coins').textContent = '🪙 ' + IL.save.coins.toLocaleString();
     const ps = pintSave(), st = Object.values(ps.stars).reduce((a, b) => a + b, 0); $('pints-sub').textContent = 'Pint ' + (nextPint() + 1) + ' · ★ ' + st + ' / ' + PINTS * 3;
     const c = $('nh-art'), g = c.getContext('2d'), w = c.width, h = c.height; g.clearRect(0, 0, w, h);
-    g.fillStyle = '#ffffff'; g.fillRect(0, h * 0.72, w, h); g.strokeStyle = '#d62839'; g.lineWidth = 2; g.beginPath(); g.moveTo(0, h * 0.72); g.lineTo(w, h * 0.72); g.stroke();
-    g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(w * 0.18, h * 0.22, w * 0.64, h * 0.5);
-    g.strokeStyle = 'rgba(255,255,255,.2)'; g.lineWidth = 1; for (let i = 1; i < 10; i++) { g.beginPath(); g.moveTo(w * (0.18 + 0.064 * i), h * 0.22); g.lineTo(w * (0.18 + 0.064 * i), h * 0.72); g.stroke(); }
-    g.strokeStyle = '#d62839'; g.lineWidth = 7; g.lineCap = 'round'; g.beginPath(); g.moveTo(w * 0.18, h * 0.72); g.lineTo(w * 0.18, h * 0.22); g.lineTo(w * 0.82, h * 0.22); g.lineTo(w * 0.82, h * 0.72); g.stroke();
-    [[0.27, 0.34], [0.73, 0.34]].forEach(([x, y]) => { g.fillStyle = '#fff'; g.beginPath(); g.arc(w * x, h * y, 14, 0, 7); g.fill(); g.fillStyle = '#d62839'; g.beginPath(); g.arc(w * x, h * y, 5, 0, 7); g.fill(); });
-    g.fillStyle = '#05080e'; g.beginPath(); g.ellipse(w * 0.5, h * 0.9, 13, 5, 0, 0, 7); g.fill();
+    const ice = g.createLinearGradient(0, h * 0.72, 0, h); ice.addColorStop(0, '#bfe6ff'); ice.addColorStop(1, '#ffffff'); g.fillStyle = ice; g.fillRect(0, h * 0.72, w, h);
+    g.fillStyle = 'rgba(236,244,255,.85)'; g.fillRect(w * 0.18, h * 0.22, w * 0.64, h * 0.5);
+    g.strokeStyle = 'rgba(90,110,150,.3)'; g.lineWidth = 1; for (let i = 1; i < 10; i++) { g.beginPath(); g.moveTo(w * (0.18 + 0.064 * i), h * 0.22); g.lineTo(w * (0.18 + 0.064 * i), h * 0.72); g.stroke(); }
+    const bx = (x, y, ww, hh, col) => { g.beginPath(); IL.R.rr(g, x, y, ww, hh, 5); g.fillStyle = col; g.fill(); g.lineWidth = 2.5; g.strokeStyle = '#0a0c14'; g.stroke(); };
+    bx(w * 0.41, h * 0.5, w * 0.075, h * 0.22, '#fff'); bx(w * 0.515, h * 0.5, w * 0.075, h * 0.22, '#fff');
+    bx(w * 0.415, h * 0.58, w * 0.065, h * 0.03, '#e8112d'); bx(w * 0.52, h * 0.58, w * 0.065, h * 0.03, '#e8112d');
+    bx(w * 0.41, h * 0.3, w * 0.18, h * 0.24, '#ff1f35'); bx(w * 0.41, h * 0.44, w * 0.18, h * 0.03, '#dfe6f0');
+    bx(w * 0.36, h * 0.34, w * 0.05, h * 0.16, '#1a3fd6');
+    g.beginPath(); g.arc(w * 0.635, h * 0.38, h * 0.065, 0, 7); g.fillStyle = '#1a3fd6'; g.fill(); g.lineWidth = 2.5; g.strokeStyle = '#0a0c14'; g.stroke();
+    g.beginPath(); g.arc(w * 0.5, h * 0.24, h * 0.065, 0, 7); g.fillStyle = '#fff'; g.fill(); g.stroke();
+    g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = '#0a0c14'; g.lineWidth = 11; g.beginPath(); g.moveTo(w * 0.18, h * 0.72); g.lineTo(w * 0.18, h * 0.22); g.lineTo(w * 0.82, h * 0.22); g.lineTo(w * 0.82, h * 0.72); g.stroke();
+    g.strokeStyle = '#ff1f35'; g.lineWidth = 7; g.stroke();
+    [[0.27, 0.34], [0.73, 0.62]].forEach(([x, y]) => { g.save(); g.shadowColor = '#ffe14a'; g.shadowBlur = 12; g.fillStyle = '#fff'; g.beginPath(); g.arc(w * x, h * y, 13, 0, 7); g.fill(); g.restore(); g.fillStyle = '#d62839'; g.beginPath(); g.arc(w * x, h * y, 5, 0, 7); g.fill(); });
+    g.save(); g.globalCompositeOperation = 'lighter'; for (let i = 0; i < 6; i++) { const t = i / 6, x = w * (0.5 - 0.22 * t), y = h * (0.92 - 0.55 * t); const gr = g.createRadialGradient(x, y, 0, x, y, 14 - i); gr.addColorStop(0, 'rgba(255,220,120,.8)'); gr.addColorStop(1, 'rgba(255,60,0,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, 14 - i, 0, 7); g.fill(); } g.restore();
+    g.fillStyle = '#05080e'; g.beginPath(); g.ellipse(w * 0.5, h * 0.92, 13, 5, 0, 0, 7); g.fill();
   }
   function init() {
     bind();
@@ -505,7 +618,7 @@ IL.Shoot = (function () {
   }
   /* test hooks */
   function debug() { if (!S) return null; const t = S.target, c = t && UV(t.u, t.v), launch = P(0, 0, PZ);
-    return { mode: S.mode, score: S.score, streak: S.streak, pucks: S.pucks, shots: S.shots, hits: S.hits, bars: S.bars, ended: S.ended, flying: !!S.puck, celly: S.celly, goalie: !!S.goalie,
+    return { mode: S.mode, score: S.score, streak: S.streak, pucks: S.pucks, shots: S.shots, hits: S.hits, bars: S.bars, ended: S.ended, flying: !!S.puck, celly: S.celly, goalie: !!S.goalie, gk: S.goalie && { x: S.goalie.x, drop: S.goalie.drop, saveT: S.goalie.saveT },
       target: t && { u: t.u, v: t.v, r: t.r, name: t.name, x: c.x, y: c.y }, launch, out: S.lastOut,
       li: S.li, stars: S.stars, wob: S.wob || 0, cleared: !!S.cleared, objs: S.objs ? S.objs.filter(o => !o.dead).map((o, i) => ({ k: o.k, i: S.objs.indexOf(o) })) : null }; }
   function _fire(u, v, curve) { fire({ u, v, curve: curve || 0, power: 1 }); }

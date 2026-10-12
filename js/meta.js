@@ -78,6 +78,17 @@ IL.Meta = (function () {
     if (adBusy) return; adBusy = true;
     IL.Ads.showRewarded().then(ok => { adBusy = false; if (ok) { IL.save.coins += 50; IL.persist(); IL.Audio.coin(); IL.UI.toast('+50 🪙'); renderShop(); } });
   }
+  /* daily login coins (virtual), with a small day-streak bonus */
+  const dkey = (d) => d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+  function loginBonus() {
+    const s = IL.save.shoot = IL.save.shoot || {}, L = s.login = s.login || { last: '', days: 0 }, today = dkey(new Date()), yest = dkey(new Date(Date.now() - 864e5));
+    const el = $('login-bonus'); if (!el) return;
+    if (L.last === today) { el.classList.add('hidden'); return; }
+    const days = L.last === yest ? L.days + 1 : 1, amt = 20 + 10 * Math.min(days - 1, 5);
+    $('lb-txt').textContent = '🎁 Daily bonus +' + amt + ' 🪙' + (days > 1 ? ' · day ' + days + ' streak' : '');
+    el.classList.remove('hidden');
+    $('lb-claim').onclick = () => { L.last = today; L.days = days; IL.save.coins += amt; IL.persist(); IL.Audio.coin(); el.classList.add('hidden'); IL.UI.toast('+' + amt + ' 🪙 · come back tomorrow for more'); $('home-coins').textContent = '🪙 ' + IL.save.coins.toLocaleString(); };
+  }
   function init() {
     $('st-back').onclick = () => { IL.Audio.click(); if (back === 'pints-path') IL.Shoot.openPints(); else IL.UI.show('home'); };
     $('st-ad').onclick = watchAd;
@@ -85,5 +96,5 @@ IL.Meta = (function () {
     $('wk-go').onclick = () => { IL.Audio.click(); IL.Shoot.start('weekly'); };
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
-  return { weekNumber, weeklyBest, submitWeekly, openWeekly, openShop, horn, BADGES, board };
+  return { loginBonus, weekNumber, weeklyBest, submitWeekly, openWeekly, openShop, horn, BADGES, board };
 })();

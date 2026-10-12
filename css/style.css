@@ -576,3 +576,8 @@ body.streamer #btn-streamer{background:#ff4d5e;color:#fff}
 .skin b{font-family:var(--hz-font);font-style:italic}
 
 #nh-art{filter:drop-shadow(0 0 18px rgba(80,140,255,.35))}
+
+/* v8: login bonus */
+#login-bonus{display:flex;align-items:center;gap:10px;background:linear-gradient(180deg,#ffe14a,#ff9a1f);color:#0a0c14;border:3px solid #0a0c14;border-radius:14px;padding:8px 10px 8px 14px;font:italic 900 15px var(--hz-font);box-shadow:0 4px 0 #0a0c14,0 0 18px rgba(255,200,40,.5);transform:skewX(-8deg)}
+#login-bonus.hidden{display:none}
+#lb-claim{background:linear-gradient(180deg,#ff8a6a,#ff1f35 45%,#b30016 52%,#ff4d5e);color:#fff;border:2px solid #0a0c14;border-radius:10px;padding:6px 12px;font:italic 900 14px var(--hz-font);text-shadow:1px 1px 0 #0a0c14}

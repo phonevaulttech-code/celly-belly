@@ -18,7 +18,7 @@ IL.Shoot = (function () {
 
   /* ---------- camera ---------- */
   function layout() {
-    W = innerWidth; H = innerHeight; dpr = Math.min(2, devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight; dpr = Math.min(3, devicePixelRatio || 1);   // sharp on retina phones
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.width = W + 'px'; cv.style.height = H + 'px';
     f = Math.min(W * 0.86, H * 0.62) * ZG / (GW * 2);           // goal fills most of the width
     hz = H * 0.63 - CAMH * f / ZG;                               // goal line sits ~63% down
@@ -37,24 +37,24 @@ IL.Shoot = (function () {
     S = { mode: weekly ? 'weekly' : daily ? 'daily' : 'endless', n, r: rng(weekly ? n * 15485863 + 77 : daily ? n * 92821 + 5 : (Math.random() * 1e9) | 0), score: 0, streak: 0, bestStreak: 0, pucks: 3, shots: 0, hits: 0, dings: 0, bars: 0,
       puck: null, target: null, goalie: null, t: 0, stop: 0, shake: 0, celly: 0, ended: false, parts: [], resetT: 0, lastSpot: -1 };
     $('s-end').classList.add('hidden'); IL.UI.show('shoot'); layout(); nextTarget(); hud();
-    say(weekly ? 'WEEKLY TOURNAMENT #' + n : daily ? 'DAILY #' + n : 'FLICK UP TO SHOOT', 'soft');
+    say(weekly ? 'WEEKLY TOURNAMENT #' + n : daily ? 'DAILY #' + n : 'BEAT THE GOALIE', 'soft');
     cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(frame);
   }
   function stop(silent) { cancelAnimationFrame(raf); S = null; drag = null; if (!silent) IL.UI.show('home'); }
   /* ---------- the goalie: chunky arcade tender. Shuffles, reacts to the shot, butterfly-drops, saves body shots ---------- */
   function makeGoalie(level, home, react) {
-    return { x: home, home, amp: 0.05 + Math.min(0.12, level * 0.015), sp: 1.3 + Math.min(1, level * 0.08), drop: 0, saveT: 0, glove: 0, react: !!react,
-      speed: react ? Math.min(1.3, 0.25 + level * 0.07) : 0, delay: Math.max(0.12, 0.28 - level * 0.012), canDrop: level >= 3 };
+    // smarter from the start: reads early, slides hard, butterflies low, flashes the glove high. Speed rises with the streak.
+    return { x: home, home, amp: 0.04, sp: 1.6, drop: 0, lift: 0, saveT: 0, glove: 0, react: !!react,
+      speed: react ? Math.min(2.0, 0.95 + level * 0.08) : 0, delay: Math.max(0.05, 0.1 - level * 0.005), canDrop: true, reach: Math.min(0.45, 0.34 + level * 0.012) };
   }
-  // gear in goal-mouth units (u: -1..1 post to post, v: 0..1 ice to bar)
+  // gear in goal-mouth units (u: -1..1 post to post, v: 0..1 ice to bar). Corners stay open by design so a placed shot always can score.
   function gear(gl) {
-    const x = gl.x, d = gl.drop, G = [];
-    G.push({ t: 'r', u: x, v: 0.5 - 0.18 * d, hu: 0.2, hv: 0.22, part: 'body' });
-    G.push({ t: 'c', u: x, v: 0.8 - 0.25 * d, r: 0.1, part: 'mask' });
-    if (d > 0.5) G.push({ t: 'r', u: x, v: 0.09, hu: 0.4, hv: 0.09, part: 'pads' });
-    else { G.push({ t: 'r', u: x - 0.17, v: 0.2, hu: 0.09, hv: 0.2, part: 'pads' }); G.push({ t: 'r', u: x + 0.17, v: 0.2, hu: 0.09, hv: 0.2, part: 'pads' }); }
-    G.push({ t: 'c', u: x + 0.36, v: 0.58 - 0.15 * d, r: 0.12, part: 'glove' });
-    G.push({ t: 'r', u: x - 0.34, v: 0.45 - 0.12 * d, hu: 0.07, hv: 0.14, part: 'blocker' });
+    const x = gl.x, d = gl.drop, G = [], pu = x, lerp = (a, b) => a + (b - a) * d;
+    G.push({ t: 'r', u: x, v: 0.5 - 0.18 * d, hu: 0.24, hv: 0.22, part: 'body' });
+    G.push({ t: 'c', u: x, v: 0.8 - 0.25 * d, r: 0.11, part: 'mask' });
+    [-1, 1].forEach(sd => G.push({ t: 'r', u: pu + sd * lerp(0.19, 0.2), v: lerp(0.2, 0.09), hu: lerp(0.1, 0.2), hv: lerp(0.2, 0.09), part: 'pads' }));
+    G.push({ t: 'c', u: x + 0.36, v: 0.58 - 0.15 * d + gl.lift * 0.2, r: 0.12, part: 'glove' });
+    G.push({ t: 'r', u: x - 0.34, v: 0.45 - 0.12 * d, hu: 0.075, hv: 0.14, part: 'blocker' });
     return G;
   }
   function gearHit(gl, u, v) {
@@ -65,29 +65,22 @@ IL.Shoot = (function () {
     return null;
   }
   function nextTarget() {
-    const lvl = S.streak, home = (S.r() - 0.5) * 0.5;               // difficulty follows the streak
-    const gl = makeGoalie(lvl, home, true);
-    const holes = [
-      { u: home + 0.72, v: 0.8, name: 'GLOVE SIDE HIGH' }, { u: home - 0.62, v: 0.86, name: 'TOP SHELF' },
-      { u: home - 0.7, v: 0.15, name: 'BLOCKER LOW' }, { u: home + 0.72, v: 0.15, name: 'GLOVE LOW' }, { u: home, v: 0.07, name: 'FIVE-HOLE', five: 1 }]
-      .filter(h => Math.abs(h.u) <= 0.82 && !(h.five && gl.canDrop));   // once he can butterfly, the five-hole closes
-    let i; do { i = (S.r() * holes.length) | 0; } while (holes.length > 1 && holes[i].name === S.lastHole);
-    const h = holes[i]; S.lastHole = h.name;
-    S.target = { u: h.u, v: h.v, name: h.name, r: Math.max(0.124, 0.236 - S.hits * 0.006), pop: 0 };   // keeps the "hair easier" sizing
-    S.goalie = gl;
+    const home = (S.r() - 0.5) * 0.3;
+    S.target = null; S.goalie = makeGoalie(S.streak, home, true);
   }
 
   /* ---------- input: swipe direction + speed = aim + power; sideways bow = light curve ---------- */
+  // linear, predictable mapping: sideways swipe distance = left/right, upward swipe distance = height.
+  // Speed doesn't change placement (consistent power). A sideways bow adds curve that bends the path but still lands on the preview.
+  const KX = () => W * 0.32, KY = () => H * 0.3, Y0 = 30;
   function aimFrom(d) {
-    const dx = d.x - d.x0, dy = d.y - d.y0, len = Math.hypot(dx, dy);
-    if (len < 18 || dy > -10) return null;
-    const ms = Math.max(30, performance.now() - d.t0), speed = len / ms;          // px per ms
-    const power = clamp(0.6 + speed * 0.3, 0.65, 1.2);
-    const u = clamp(dx / -dy * 1.9, -2, 2);
-    const v = clamp((len / Math.min(W, 420)) * 1.4 * (0.92 + 0.08 * power) - 0.06, -0.05, 1.5);   // gentler: more swipe per unit of height
-    let dev = 0; const ux = dx / len, uy = dy / len;
+    const dx = d.x - d.x0, dy = d.y - d.y0;
+    if (dy > -12) return null;
+    const u = clamp(dx / KX(), -1.5, 1.5), v = clamp((-dy - Y0) / KY(), -0.05, 1.35);
+    const len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len; let dev = 0;
     d.path.forEach(p => { const s = (p[0] - d.x0) * -uy + (p[1] - d.y0) * ux; if (Math.abs(s) > Math.abs(dev)) dev = s; });
-    return { u, v, curve: clamp(-dev / len * 1.4, -0.35, 0.35), power };
+    const curve = Math.abs(dev) < 8 ? 0 : clamp(-dev / (W * 0.18), -1, 1) * 0.4;
+    return { u, v, curve, power: 1 };
   }
   function bind() {
     cv = $('shoot-canvas'); ctx = cv.getContext('2d');
@@ -106,54 +99,56 @@ IL.Shoot = (function () {
   function fire(a) {
     if (!S || S.ended || S.puck || S.pucks <= 0) return;
     S.shots++;
-    let fu = a.u + a.curve * 0.5, fv = a.v;                        // curve bends the finish point a little
+    let fu = a.u, fv = a.v;                                        // lands exactly where the preview showed (no aim assist, no spread)
     if (S.mode === 'pints') { const d = drift(); fu += d.u; fv += d.v; S.pucks--; S.shotKnocks = 0; }
-    else if (S.target) {                                            // gentle aim assist: only pulls shots that were already close
-      const t = S.target, R0 = t.r * 2.2, dd = Math.hypot((fu - t.u) * GW, (fv - t.v) * GH);
-      if (dd < R0 && fv < 0.95) { const pull = 0.45 * (1 - dd / R0) + 0.15; fu += (t.u - fu) * pull; fv += (t.v - fv) * pull; }
-    }
-    S.puck = { a, t: 0, T: 0.42 / a.power, fu, fv, done: false, hitSet: [], X: 0, Y: 0, Z: PZ, trail: [] };
-    IL.Audio.slap(clamp(a.power - 0.4, 0, 1)); IL.Audio.haptic(12); if (S.mode === 'pints') hud();
+    S.puck = { a, t: 0, T: 0.38, fu, fv, done: false, hitSet: [], X: 0, Y: 0, Z: PZ, trail: [] };
+    IL.Audio.slap(0.6); IL.Audio.haptic(12); if (S.mode === 'pints') hud();
   }
 
   /* ---------- resolve at the goal plane ---------- */
+  function zone(u, v, gx) {
+    const top = v > 0.72, corner = Math.abs(u) > 0.6, low = v < 0.25;
+    if (top && corner) return ['TOP CORNER', 300]; if (top) return ['TOP SHELF', 200]; if (low && corner) return ['LOW CORNER', 200];
+    if (Math.abs(u - gx) < 0.12 && v < 0.3) return ['FIVE-HOLE', 250]; if (corner) return ['CORNER', 150]; return ['GOAL', 100];
+  }
   function resolve(p) {
-    const X = p.fu * GW, Y = p.fv * GH, tg = S.target, gl = S.goalie;
+    const X = p.fu * GW, Y = p.fv * GH, gl = S.goalie;
     const inMouth = Math.abs(X) < GW - PUCK && Y < GH - PUCK && Y > -0.02;
     const postD = Math.abs(Math.abs(X) - GW), barD = Math.abs(Y - GH);
     const onPost = postD < POST + PUCK && Y < GH + POST, onBar = barD < POST + PUCK && Math.abs(X) < GW + POST;
     let out = 'miss';
-    if (gl && inMouth) { const part = gearHit(gl, X / GW, Y / GH); if (part) { out = 'save'; p.savedBy = part; } }
+    if (gl && (inMouth || onBar || onPost)) { const part = gearHit(gl, X / GW, Y / GH); if (part) { out = 'save'; p.savedBy = part; } }
     if (out !== 'save') {
-      const td = Math.hypot(X - tg.u * GW, Y - tg.v * GH);
-      if (onBar && Y <= GH) out = 'bardown';                        // off the crossbar and in: always BAR DOWN
-      else if (onPost && Math.abs(X) <= GW) out = td < tg.r + PUCK ? 'hit' : 'postin';
+      if (onBar && Y <= GH) out = 'bardown';
+      else if (onPost && Math.abs(X) <= GW) out = 'postin';
       else if (onBar || onPost) out = 'ding';
-      else if (inMouth) out = td < tg.r + PUCK ? 'hit' : 'goal';
+      else if (inMouth) out = 'goal';
     }
     p.out = out; p.endX = X; p.endY = Y; S.lastOut = out;
-    const mult = () => 1 + Math.floor(S.streak / 3);
-    if (out === 'hit' || out === 'bardown') {
-      S.streak++; S.hits++; S.bestStreak = Math.max(S.bestStreak, S.streak);
+    const mult = 1 + Math.floor(S.streak / 3);
+    if (out === 'goal' || out === 'bardown' || out === 'postin') {
+      let [name, base] = out === 'bardown' ? ['BAR DOWN', 450] : out === 'postin' ? ['POST & IN', 350] : zone(p.fu, p.fv, gl ? gl.x : 0);
+      const deke = Math.abs(p.a.curve) > 0.15 && gl && Math.abs(gl.x - p.fu) > 0.3;
+      S.streak++; S.hits++; S.bestStreak = Math.max(S.bestStreak, S.streak); S.lastZone = name;
+      const pts = (base + (deke ? 75 : 0)) * (1 + Math.floor((S.streak - 1) / 3)); S.score += pts;
       if (S.streak === 3 || (S.streak > 3 && S.streak % 5 === 0)) { setTimeout(() => S && say('ON FIRE!', 'fire'), out === 'bardown' ? 700 : 450); IL.Audio.lane(); }
-      const big = out === 'bardown' || tg.r <= 0.13 || S.streak % 5 === 0;
-      const pts = (out === 'bardown' ? 250 : 100) * mult(); S.score += pts;
-      if (out === 'bardown') { S.bars++; IL.Audio.ping(); setTimeout(() => IL.Meta.horn(), 120); say('BAR DOWN  +' + pts, 'gold'); S.stop = 0.14; S.shake = 5; IL.Audio.haptic([25, 30, 50]); }
-      else { IL.Audio.tink(); IL.Audio.combo(S.streak + 2); say((S.streak >= 3 ? 'STREAK ' + S.streak + '  ' : '') + '+' + pts, S.streak >= 3 ? 'gold' : ''); S.stop = 0.08; IL.Audio.haptic(S.streak >= 3 ? [15, 25, 25] : 18); }
+      if (out === 'bardown') { S.bars++; IL.Audio.ping(); S.stop = 0.14; S.shake = 4; IL.Audio.haptic([25, 30, 50]); }
+      else if (out === 'postin') { IL.Audio.ping(); S.stop = 0.1; IL.Audio.haptic([20, 30, 30]); }
+      else { IL.Audio.tink(); S.stop = 0.08; IL.Audio.haptic(S.streak >= 3 ? [15, 25, 25] : 18); }
+      setTimeout(() => IL.Meta.horn(), 120); IL.Audio.combo(S.streak + 2);
+      say((deke ? 'DEKE! ' : '') + name + '  +' + pts, base >= 250 || S.streak >= 3 ? 'gold' : '');
       if (S.streak % 5 === 0 && S.pucks < 3) { S.pucks++; setTimeout(() => say('STREAK ' + S.streak + '  +1 PUCK', 'gold'), 650); }
-      if (big) { S.celly = 1.1; setTimeout(() => S && IL.Audio.bump(), 380); }
-      tg.pop = 1; burst(tg.u, tg.v, out === 'bardown' ? '#ffcf3f' : '#e63946');
-      setTimeout(() => S && !S.ended && nextTarget(), 420);
-    } else if (out === 'postin' || out === 'goal') {
-      IL.Audio.thunk(); if (out === 'postin') IL.Audio.ping();
-      S.score += out === 'postin' ? 50 : 10; S.streak = 0; say(out === 'postin' ? 'POST & IN  +50' : 'GOAL — MISSED THE TARGET', 'soft');
+      if (base >= 300 || S.streak % 5 === 0) { S.celly = 1.1; setTimeout(() => S && IL.Audio.bump(), 380); }
+      burst(p.fu, p.fv, out === 'bardown' ? '#ffcf3f' : '#ff1f35');
+      setTimeout(() => S && !S.ended && nextTarget(), 450);
     } else if (out === 'ding') {
       IL.Audio.ping(); S.dings++; S.score += 25; S.pucks--; say('DING!  SO CLOSE', 'soft'); IL.Audio.haptic([10, 40, 10]); S.stop = 0.06;
+      setTimeout(() => S && !S.ended && !S.puck && nextTarget(), 650);
     } else {
-      const wasFire = S.streak >= 3; S.streak = 0; S.pucks--;
-      if (out === 'save') { IL.Audio.thunk(); IL.Audio.cheer(false); say(p.savedBy === 'glove' ? 'ROBBED! GLOVE SAVE' : wasFire ? 'ROBBED! FIRE’S OUT' : 'ROBBED!', 'robbed'); S.stop = 0.12; if (S.goalie) { S.goalie.saveT = 0.7; S.goalie.glove = p.savedBy === 'glove' ? 1 : 0; } if (p.savedBy === 'glove') p.caught = true; }
+      S.streak = 0; S.pucks--;
+      if (out === 'save') { IL.Audio.thunk(); IL.Audio.cheer(false); say('ROBBED!', 'robbed'); S.stop = 0.12; if (gl) { gl.saveT = 0.7; gl.glove = p.savedBy === 'glove' ? 1 : 0; } if (p.savedBy === 'glove') p.caught = true; }
       else { IL.Audio.board(0.4); say('WIDE', 'bad'); }
-      if (wasFire || S.hits) setTimeout(() => S && !S.ended && !S.puck && nextTarget(), 650);   // streak broke: goalie cools off with it
+      setTimeout(() => S && !S.ended && !S.puck && nextTarget(), 650);
       IL.Audio.haptic(30);
     }
     hud();
@@ -170,10 +165,14 @@ IL.Shoot = (function () {
     S.t += dt; S.shake = Math.max(0, S.shake - dt * 30); S.celly = Math.max(0, S.celly - dt);
     if (S.goalie) {
       const g = S.goalie, p0 = S.puck; g.saveT = Math.max(0, g.saveT - dt);
-      if (p0 && !p0.done && g.react && p0.t > g.delay) {            // read the shot, slide over, maybe drop
-        const want = clamp(p0.fu, -0.7, 0.7), dx = want - g.x; g.x += Math.sign(dx) * Math.min(Math.abs(dx), g.speed * dt);
-        if (g.canDrop && p0.fv < 0.35) g.drop = Math.min(1, g.drop + dt * 5);
-      } else if (!p0 && !g.saveT) { g.x += ((g.home + Math.sin(S.t * g.sp) * g.amp) - g.x) * Math.min(1, dt * 4); g.drop = Math.max(0, g.drop - dt * 3); }
+      if (p0 && !p0.done && g.react && p0.t > g.delay) {
+        // he reads where the shot LOOKS headed; a curve sells a fake until late, then he corrects at reduced speed (deke)
+        const early = p0.t < p0.T * 0.55, read = early ? p0.fu - p0.a.curve * 1.1 : p0.fu;
+        const want = clamp(read * 0.85, -g.reach, g.reach), dx = want - g.x, spd = g.speed * (early ? 1 : 0.55);
+        g.x += Math.sign(dx) * Math.min(Math.abs(dx), spd * dt);
+        if (g.canDrop && p0.fv < 0.35) g.drop = Math.min(1, g.drop + dt * 7);
+        if (p0.fv > 0.55 && read > g.x) g.lift = Math.min(1, g.lift + dt * 6);           // glove flash
+      } else if (!p0 && !g.saveT) { g.x += ((g.home + Math.sin(S.t * g.sp) * g.amp) - g.x) * Math.min(1, dt * 4); g.drop = Math.max(0, g.drop - dt * 3); g.lift = Math.max(0, g.lift - dt * 3); }
       else if (!g.react) g.x = g.home + Math.sin(S.t * g.sp) * g.amp;
     }
     if (S.target && S.target.pop) S.target.pop = Math.max(0, S.target.pop - dt * 2.5);
@@ -220,7 +219,12 @@ IL.Shoot = (function () {
     g.strokeStyle = 'rgba(70,90,120,.22)'; g.lineWidth = 1;
     for (let i = 1; i < 14; i++) { const k = i / 14; g.beginPath(); g.moveTo(bl.x + (br.x - bl.x) * k, bl.y); g.lineTo(btl.x + (btr.x - btl.x) * k, btl.y); g.lineTo(tl.x + (tr.x - tl.x) * k, tl.y); g.stroke(); }
     for (let i = 1; i < 8; i++) { const k = i / 8; g.beginPath(); g.moveTo(bl.x + (btl.x - bl.x) * k, bl.y + (btl.y - bl.y) * k); g.lineTo(br.x + (btr.x - br.x) * k, br.y + (btr.y - br.y) * k); g.stroke(); }
-    // goalie (behind targets visually) / target
+    g.strokeStyle = 'rgba(70,90,120,.28)'; g.lineWidth = 1;
+    [[fl, tl, bl, btl], [fr, tr, br, btr]].forEach(([f0, f1, b0, b1]) => { g.fillStyle = 'rgba(236,244,255,.45)'; g.beginPath(); g.moveTo(f0.x, f0.y); g.lineTo(f1.x, f1.y); g.lineTo(b1.x, b1.y); g.lineTo(b0.x, b0.y); g.closePath(); g.fill();
+      for (let i = 1; i < 6; i++) { const k = i / 6; g.beginPath(); g.moveTo(f0.x + (b0.x - f0.x) * k, f0.y + (b0.y - f0.y) * k); g.lineTo(f1.x + (b1.x - f1.x) * k, f1.y + (b1.y - f1.y) * k); g.stroke(); }
+      for (let i = 1; i < 6; i++) { const k = i / 6; g.beginPath(); g.moveTo(f0.x + (f1.x - f0.x) * k, f0.y + (f1.y - f0.y) * k); g.lineTo(b0.x + (b1.x - b0.x) * k, b0.y + (b1.y - b0.y) * k); g.stroke(); } });
+    { const bBot = P(0, 0, ZG + 3.5).y, sx2 = ((S.t * 0.12) % 1.6 - 0.3) * W, sh2 = g.createLinearGradient(sx2 - 90, 0, sx2 + 90, 0); sh2.addColorStop(0, 'rgba(255,255,255,0)'); sh2.addColorStop(0.5, 'rgba(255,255,255,.22)'); sh2.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = sh2; g.fillRect(0, bBot, W, H - bBot); }
+    // goalie
     if (S.goalie) drawGoalie(g, S.goalie);
     if (S.target && S.mode !== 'pints') drawTarget(g, S.target);
     // posts + crossbar
@@ -231,15 +235,16 @@ IL.Shoot = (function () {
     g.strokeStyle = 'rgba(255,255,255,.6)'; g.lineWidth = pw * 0.25; g.beginPath(); g.moveTo(fl.x - pw * 0.2, fl.y); g.lineTo(tl.x - pw * 0.2, tl.y + pw * 0.2); g.lineTo(tr.x, tr.y - pw * 0.2); g.stroke();
     if (S.objs) S.objs.slice().sort((a, b) => b.Z - a.Z).forEach(o => drawObj(g, o));
     // aim reticle (subtle) while dragging
-    if (drag && !S.puck) { const a = aimFrom(drag), d = S.mode === 'pints' ? drift() : { u: 0, v: 0 }; if (a) { const c = UV(a.u + a.curve * 0.5 + d.u, a.v + d.v); g.strokeStyle = '#ffe14a'; g.lineWidth = 2.5; g.setLineDash([4, 4]); g.beginPath(); g.arc(c.x, c.y, 9, 0, 7); g.stroke(); g.setLineDash([]); } }
+    if (drag && !S.puck) { const a = aimFrom(drag); if (a) drawPreview(g, a); }
     // puck
-    const p = S.puck;
+    const p = S.puck; if (!drag) S.pv = null;
     if (p && !p.hide) {
       const fire = S.streak >= 3 && S.mode !== 'pints';
       if (fire) { g.save(); g.globalCompositeOperation = 'lighter'; p.trail.forEach((q, i) => { const s = P(q[0], q[1], q[2]), k = i / p.trail.length, r = PUCK * s.k * (1.2 + k * 1.3);
         const gr = g.createRadialGradient(s.x, s.y, 0, s.x, s.y, r * 1.6); gr.addColorStop(0, 'rgba(255,240,150,' + 0.9 * k + ')'); gr.addColorStop(0.45, 'rgba(255,120,20,' + 0.7 * k + ')'); gr.addColorStop(1, 'rgba(255,40,0,0)');
         g.fillStyle = gr; g.beginPath(); g.arc(s.x + (Math.random() - 0.5) * r * 0.4, s.y - r * 0.3, r * 1.6, 0, 7); g.fill(); }); g.restore(); }
       else p.trail.forEach((q, i) => { const s = P(q[0], q[1], q[2]); g.fillStyle = 'rgba(30,60,140,' + (i / p.trail.length * 0.22) + ')'; g.beginPath(); g.arc(s.x, s.y, PUCK * s.k * 0.9, 0, 7); g.fill(); });
+      if (!p.done) { g.save(); p.trail.slice(-4).forEach((q, i) => { g.globalAlpha = 0.12 + i * 0.07; drawPuck(g, q[0], q[1], q[2]); }); g.restore(); }
       drawPuck(g, p.X, p.Y, p.Z); }
     else if (!S.ended && S.pucks > 0) drawPuck(g, 0, 0, PZ);
     // shooter's stick blade (we're right behind him)
@@ -285,6 +290,18 @@ IL.Shoot = (function () {
     g.fillStyle = 'rgba(232,17,45,.15)'; g.fillRect(0, H - 40, W, 3);
     return c;
   }
+  // aim preview: dotted flight path (with the curve) + a ghost puck exactly where it will land
+  function drawPreview(g, a) {
+    const d = S.mode === 'pints' ? drift() : { u: 0, v: 0 }, fu = a.u + d.u, fv = a.v + d.v;
+    S.pv = S.pv ? { u: S.pv.u + (fu - S.pv.u) * 0.5, v: S.pv.v + (fv - S.pv.v) * 0.5 } : { u: fu, v: fv };   // smoothed
+    const su = S.pv.u, sv3 = S.pv.v;
+    for (let i = 1; i <= 14; i++) { const k = i / 15, X = su * GW * k - a.curve * GW * 0.6 * Math.sin(Math.PI * k), Y = sv3 * GH * k + Math.sin(Math.PI * k) * 0.08 * sv3, q = P(X, Y, PZ + (ZG - PZ) * k);
+      g.fillStyle = 'rgba(255,225,74,' + (0.25 + 0.6 * k) + ')'; g.beginPath(); g.arc(q.x, q.y, 2.2 + 1.5 * (1 - k), 0, 7); g.fill(); }
+    const c = P(su * GW, sv3 * GH, ZG), r = PUCK * c.k;
+    g.save(); g.globalAlpha = 0.55; g.fillStyle = '#0a0c14'; g.beginPath(); g.ellipse(c.x, c.y, r * 1.1, r * 0.55, 0, 0, 7); g.fill(); g.restore();
+    g.strokeStyle = '#ffe14a'; g.lineWidth = 2.5; g.shadowColor = '#ffe14a'; g.shadowBlur = 10; g.beginPath(); g.arc(c.x, c.y, r * 2.2, 0, 7); g.stroke(); g.shadowBlur = 0;
+    g.lineWidth = 1.5; g.beginPath(); g.moveTo(c.x - r * 3.2, c.y); g.lineTo(c.x - r * 1.4, c.y); g.moveTo(c.x + r * 1.4, c.y); g.lineTo(c.x + r * 3.2, c.y); g.stroke();
+  }
   function drawTarget(g, t) {
     const c = UV(t.u, t.v), r = t.r * f / ZG * (1 + t.pop * 0.4);
     const fl = 0.75 + 0.25 * Math.sin(S.t * 9); g.save(); g.shadowColor = '#ffe14a'; g.shadowBlur = 16 * fl; g.globalAlpha = (1 - t.pop * 0.7) * (0.85 + 0.15 * fl);
@@ -304,14 +321,16 @@ IL.Shoot = (function () {
     const sh = U(x, 0); g.fillStyle = 'rgba(10,20,60,.25)'; g.beginPath(); g.ellipse(sh.x, sh.y + 3, 0.5 * GW * k * (1 + d * 0.4), 7, 0, 0, 7); g.fill();
     // pads
     const padFill = metal(U(0, 0.4).y, U(0, 0).y, '#ffffff', '#c9d3e3');
-    if (d > 0.5) { box(x - 0.2, 0.09, 0.2, 0.09, padFill, 8); box(x + 0.2, 0.09, 0.2, 0.09, padFill, 8); [x - 0.2, x + 0.2].forEach(u => box(u, 0.09, 0.16, 0.025, '#e8112d', 3)); }
-    else { [x - 0.17, x + 0.17].forEach(u => { box(u, 0.2, 0.09, 0.2, padFill, 9); box(u, 0.26, 0.09, 0.03, '#e8112d', 2); box(u, 0.12, 0.09, 0.025, '#1a3fd6', 2); }); }
+    const L = (a, b) => a + (b - a) * d;                               // pads animate smoothly from stance to butterfly
+    [-1, 1].forEach(sd => { const pu = x + sd * L(0.19, 0.2), pv = L(0.2, 0.09), hu = L(0.1, 0.2), hv = L(0.2, 0.09);
+      box(pu, pv, hu, hv, padFill, 9); box(pu, pv + hv * 0.3, hu, hv * 0.14, '#e8112d', 2); box(pu, pv - hv * 0.4, hu, hv * 0.12, '#1a3fd6', 2);
+      const hl = U(pu - hu * 0.6, pv + hv * 0.8), hl2 = U(pu - hu * 0.6, pv - hv * 0.8); g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 2; g.beginPath(); g.moveTo(hl.x, hl.y); g.lineTo(hl2.x, hl2.y); g.stroke(); });
     // body / jersey (original design: red with a chrome stripe and a big belly)
-    const bv = 0.5 - 0.18 * d; box(x, bv, 0.22, 0.23, metal(U(0, bv + 0.23).y, U(0, bv - 0.23).y, '#ff2a3d', '#b00d20'), 16);
-    box(x, bv - 0.06, 0.22, 0.035, metal(U(0, bv).y, U(0, bv - 0.1).y, '#f4f7fb', '#8796ad'), 3);
+    const bv = 0.5 - 0.18 * d; box(x, bv, 0.25, 0.23, metal(U(0, bv + 0.23).y, U(0, bv - 0.23).y, '#ff2a3d', '#b00d20'), 16);
+    box(x, bv - 0.06, 0.25, 0.035, metal(U(0, bv).y, U(0, bv - 0.1).y, '#f4f7fb', '#8796ad'), 3);
     const nb = U(x, bv + 0.05); g.fillStyle = '#fff'; g.font = 'italic 900 ' + Math.round(k * 0.13) + 'px Impact,"Arial Black",sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = lw; g.strokeStyle = OL; g.strokeText('00', nb.x, nb.y); g.fillText('00', nb.x, nb.y);
     // blocker (stick side) and glove (trapper), glove snaps up on a save
-    const gv = 0.58 - 0.15 * d + sv2 * (gl.glove ? 0.12 : 0.04), gu = x + 0.36 + sv2 * 0.05;
+    const gv = 0.58 - 0.15 * d + (gl.lift || 0) * 0.2 + sv2 * (gl.glove ? 0.06 : 0.02), gu = x + 0.36 + sv2 * 0.04;
     box(x - 0.34, 0.45 - 0.12 * d, 0.075, 0.15, metal(U(0, 0.6).y, U(0, 0.3).y, '#1a3fd6', '#0b1f7a'), 5);
     const gc = U(gu, gv); g.beginPath(); g.arc(gc.x, gc.y, 0.125 * GW * k, 0, 7); g.fillStyle = metal(gc.y - 20, gc.y + 20, '#1a3fd6', '#0b1f7a'); g.fill(); g.lineWidth = lw; g.strokeStyle = OL; g.stroke();
     g.beginPath(); g.arc(gc.x, gc.y, 0.07 * GW * k, 0, 7); g.fillStyle = '#f4f7fb'; g.fill();
@@ -556,8 +575,10 @@ IL.Shoot = (function () {
     s.bestStreak = Math.max(s.bestStreak, S.bestStreak);
     const coins = Math.floor(S.score / 50); IL.save.coins += coins; IL.persist();
     $('se-mode').textContent = S.mode === 'weekly' ? 'WEEKLY #' + S.n : S.mode === 'daily' ? 'DAILY #' + S.n : 'RUN OVER';
-    $('se-score').textContent = S.score.toLocaleString(); $('se-pb').classList.toggle('hidden', !pb);
-    $('se-stats').textContent = 'Best streak ' + S.bestStreak + ' · ' + S.hits + ' targets · ' + S.bars + ' bar down' + (S.mode === 'weekly' ? ' · #' + S.rank + ' of your runs this week' : S.mode === 'daily' ? '' : ' · Best ' + s.best.toLocaleString());
+    const ref = S.mode === 'endless' ? s.best : 0, gap = ref - S.score, near = !pb && ref > 0 && S.score > 0 && gap <= Math.max(150, ref * 0.3);
+    s.last = S.mode === 'endless' ? { score: S.score, gap: pb ? 0 : gap } : s.last;
+    $('se-score').textContent = S.score.toLocaleString(); $('se-pb').classList.toggle('hidden', !pb && !near); $('se-pb').textContent = pb ? 'NEW BEST' : 'ONLY ' + gap.toLocaleString() + ' FROM YOUR BEST!';
+    $('se-stats').textContent = 'Best streak ' + S.bestStreak + ' · ' + S.hits + ' goals · ' + S.bars + ' bar down' + (S.mode === 'weekly' ? ' · #' + S.rank + ' of your runs this week' : S.mode === 'daily' ? '' : ' · Best ' + s.best.toLocaleString());
     $('se-coins').textContent = coins ? '+' + coins + ' 🪙' : '';
     $('s-end').classList.remove('hidden'); if (pb) IL.Audio.win(); else IL.Audio.grade('B');
     $('se-retry').textContent = 'PLAY AGAIN'; $('se-stars').textContent = ''; $('se-levels').classList.toggle('hidden', S.mode !== 'weekly'); $('se-levels').textContent = 'Leaderboard';
@@ -579,7 +600,8 @@ IL.Shoot = (function () {
   /* ---------- home ---------- */
   function renderHome() {
     const s = sv(), dk = s.daily[IL.todayKey()];
-    $('nh-best').textContent = s.best ? 'Best ' + s.best.toLocaleString() + ' · Streak ' + s.bestStreak : 'Flick. Bar down. Celly.';
+    $('nh-best').textContent = s.best ? (s.last && s.last.gap > 0 && s.last.gap <= Math.max(150, s.best * 0.3) ? 'Last run ' + s.last.score.toLocaleString() + ' · only ' + s.last.gap.toLocaleString() + ' from your best!' : 'Best ' + s.best.toLocaleString() + ' · Streak ' + s.bestStreak) : 'Beat the goalie. Bar down. Celly.';
+    IL.Meta && IL.Meta.loginBonus && IL.Meta.loginBonus();
     $('btn-sdaily').textContent = '📅 Daily #' + IL.dailyNumber() + (dk ? ' · ' + dk.toLocaleString() : '');
     $('home-coins').textContent = '🪙 ' + IL.save.coins.toLocaleString();
     const ps = pintSave(), st = Object.values(ps.stars).reduce((a, b) => a + b, 0); $('pints-sub').textContent = 'Pint ' + (nextPint() + 1) + ' · ★ ' + st + ' / ' + PINTS * 3;
@@ -617,13 +639,12 @@ IL.Shoot = (function () {
     renderHome();
   }
   /* test hooks */
-  function debug() { if (!S) return null; const t = S.target, c = t && UV(t.u, t.v), launch = P(0, 0, PZ);
-    return { mode: S.mode, score: S.score, streak: S.streak, pucks: S.pucks, shots: S.shots, hits: S.hits, bars: S.bars, ended: S.ended, flying: !!S.puck, celly: S.celly, goalie: !!S.goalie, gk: S.goalie && { x: S.goalie.x, drop: S.goalie.drop, saveT: S.goalie.saveT },
-      target: t && { u: t.u, v: t.v, r: t.r, name: t.name, x: c.x, y: c.y }, launch, out: S.lastOut,
+  function debug() { if (!S) return null; const launch = P(0, 0, PZ);
+    return { mode: S.mode, score: S.score, streak: S.streak, pucks: S.pucks, shots: S.shots, hits: S.hits, bars: S.bars, ended: S.ended, flying: !!S.puck, celly: S.celly, goalie: !!S.goalie, gk: S.goalie && { x: S.goalie.x, drop: S.goalie.drop, lift: S.goalie.lift, saveT: S.goalie.saveT, speed: S.goalie.speed },
+      target: null, zone: S.lastZone, launch, out: S.lastOut,
       li: S.li, stars: S.stars, wob: S.wob || 0, cleared: !!S.cleared, objs: S.objs ? S.objs.filter(o => !o.dead).map((o, i) => ({ k: o.k, i: S.objs.indexOf(o) })) : null }; }
   function _fire(u, v, curve) { fire({ u, v, curve: curve || 0, power: 1 }); }
   // inverse of aimFrom for a given flick duration: returns a screen swipe vector that lands on (u, v)
-  function swipeFor(u, v, ms) { const speed0 = 1; let len = 150; for (let i = 0; i < 30; i++) { const power = clamp(0.6 + (len / ms) * 0.3, 0.65, 1.2); len = (v + 0.06) / (1.4 * (0.92 + 0.08 * power)) * Math.min(W, 420); }
-    const dy = -len / Math.sqrt(1 + (u / 1.9) ** 2), dx = u / 1.9 * -dy; return { dx, dy }; }
+  function swipeFor(u, v) { return { dx: u * KX(), dy: -(v * KY() + Y0) }; }
   return { skin, skinSave, init, start, stop, debug, renderHome, _fire, swipeFor, aimAt, openPints, openSkins, shareCard, PINTS, SKINS, buildPint, _fireAt: (i) => { const a = aimAt(i); if (a) fire({ u: a.u, v: a.v, curve: 0, power: 1 }); }, _noWob: () => { if (S) S.wob = 0; }, _pucks: (n) => { if (S) { S.pucks = n; hud(); } }, _end: () => { if (S) { S.pucks = 0; end(); } }, get active() { return !!S; } };
 })();

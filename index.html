@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#10141d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Celly Belly</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%A7%8A%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <div id="intro"><canvas id="intro-canvas"></canvas>
+    <div class="intro-ui"><div class="intro-brand"><b class="gt">Celly Belly</b><span>TOP SHELF, BOTTOM BARREL</span></div>
+    <div class="intro-bottom"><div id="intro-tip"></div><button id="intro-go">LET'S GO ▶</button><small>tap anywhere</small></div></div>
+  </div>
+
+  <!-- HOME: straight into flinging -->
+  <section id="home" class="screen">
+    <header class="topbar">
+      <div class="pills"><span class="pill" id="home-stars">★ 0</span><span class="pill" id="home-coins">🪙 0</span></div>
+      <div class="pills"><button class="pill icon" id="btn-streamer" title="Streamer mode">🎥</button><button class="pill icon boss-btn" title="Boss key (B)">📊</button><button class="pill icon mute-btn" aria-label="Mute (M)">🔊</button></div>
+    </header>
+    <div class="homemain">
+      <canvas id="home-art" width="360" height="300"></canvas>
+      <h1 class="gtitle gt">Celly Belly</h1>
+      <p class="gsub">One finger. One puck. Zero dignity.</p>
+      <button class="btn play" id="btn-play"><b>▶ PLAY</b><small id="play-sub">Level 1 · Cup Pyramid</small></button>
+      <div class="homegrid">
+        <button class="tile2" id="btn-levels"><b>🏒 Levels</b><small id="levels-sub">0 / 32 cleared</small></button>
+        <button class="tile2" id="btn-dlevel"><b>📅 Daily Level</b><small id="dlevel-sub">Same shot for everyone</small></button>
+        <button class="tile2 beer" id="btn-beer"><b>🍺 Beer League</b><small id="beer-sub">75s · 5 wobbly rounds</small></button>
+        <button class="tile2" id="btn-manager"><b>🧊 Rink Manager</b><small>Zamboni side gig</small></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- MANAGER HUB -->
+  <section id="hub" class="screen hidden">
+    <header class="topbar">
+      <div class="brand"><button class="pill icon" data-home="1" aria-label="Home">⌂</button> <b>ICELOCK</b><span>Rink Manager side gig</span></div>
+      <div class="pills"><span class="pill" id="hub-coins">🪙 0</span><button class="pill icon boss-btn" id="btn-boss" title="Boss key (B)">📊</button><button class="pill icon mute-btn" id="btn-mute" aria-label="Mute (M)">🔊</button></div>
+    </header>
+    <div class="scroll">
+      <div class="rinkcard" id="rinkcard">
+        <canvas id="hub-preview" width="150" height="300"></canvas>
+        <div class="rinkinfo">
+          <small id="hub-venue">Community Rink · Madison, WI</small>
+          <h1 id="hub-rinkname">MADTOWN ICE</h1>
+          <div class="team" id="hub-team">Home of the Lakers</div>
+          <div class="stats">
+            <div><b id="hub-rep">0</b><span>Reputation</span></div>
+            <div><b id="hub-fans">0</b><span>Fans</span></div>
+            <div><b id="hub-day">1</b><span>Day</span></div>
+          </div>
+          <div class="repbar"><i id="hub-repfill"></i></div>
+          <small id="hub-next" class="nextu"></small>
+        </div>
+      </div>
+      <div class="playrow">
+        <button class="quick" id="btn-quick"><span>⚡</span><b>QUICK SHIFT</b><small>45s Zamboni · no menus</small></button>
+        <button class="continue" id="btn-continue">▶ <b>Continue</b></button>
+      </div>
+      <button class="dailyrink" id="btn-daily-rink"><span class="dr-ico">📅</span><span class="dr-txt"><b id="daily-title">Daily Rink</b><small id="daily-sub">Same rink for everyone</small></span><span class="dr-lb" id="btn-leader">🏆</span></button>
+      <button class="daily hidden" id="btn-daily">🎁 Daily shift bonus ready — tap to claim!</button>
+      <h2 class="sect">🫧 Your Crew</h2>
+      <div class="crewbox"><canvas id="hub-crew"></canvas></div>
+      <h2 class="sect">📅 Today's Schedule</h2>
+      <div id="schedule" class="schedule"></div>
+      <div class="hubgrid">
+        <button class="tile" id="go-designer"><span>🎨</span>Ice Designer<small>Logo, lines, boards</small></button>
+        <button class="tile" id="go-shop"><span>🔧</span>Upgrades<small>Zamboni & rink</small></button>
+        <button class="tile" id="go-venues"><span>🏟️</span>Venues<small id="hub-venuecount">1 / 7 unlocked</small></button>
+        <button class="tile" id="go-help"><span>❓</span>How to Play<small>Quick tips</small></button>
+      </div>
+      <p class="foot">Virtual coins only · no real money · progress saved on this device</p>
+    </div>
+  </section>
+
+  <!-- VENUES -->
+  <section id="venues" class="screen hidden">
+    <header class="topbar"><button class="back" data-go="hub">‹ Hub</button><div class="title">Venues</div><span class="pill" id="ven-rep">⭐ 0</span></header>
+    <div class="scroll" id="venue-list"></div>
+  </section>
+
+  <!-- DESIGNER -->
+  <section id="designer" class="screen hidden">
+    <header class="topbar"><button class="back" id="des-back">‹ Hub</button><div class="title">Ice Designer</div><button class="pill save" id="des-save">💾 Save</button></header>
+    <div class="desbody">
+      <div class="despreview"><canvas id="des-canvas" width="340" height="720"></canvas><button class="mini" id="des-dirty">👀 Dirty / Clean</button></div>
+      <div class="despanel">
+        <div class="tabs" id="des-tabs">
+          <button data-tab="logo" class="on">Logo</button><button data-tab="lines">Lines</button><button data-tab="boards">Boards</button><button data-tab="name">Names</button>
+        </div>
+        <div class="tabbody" id="des-body"></div>
+        <div class="desfoot"><button class="btn ghost" id="des-random">🎲 Surprise me</button><button class="btn ghost" id="des-reset">↺ Default</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SHOP / UPGRADES -->
+  <section id="shop" class="screen hidden">
+    <header class="topbar"><button class="back" data-go="hub">‹ Hub</button><div class="title">Upgrades</div><span class="pill" id="shop-coins">🪙 0</span></header>
+    <div class="tabs wide" id="shop-tabs"><button data-tab="zam" class="on">Zamboni</button><button data-tab="skins">Skins</button><button data-tab="rink">Rink</button><button data-tab="staff">Staff</button></div>
+    <div class="scroll" id="shop-body"></div>
+  </section>
+
+  <!-- GAME -->
+  <section id="game" class="screen hidden">
+    <canvas id="game-canvas"></canvas>
+    <div id="hud">
+      <div class="hudrow">
+        <button class="hbtn" id="btn-pause" aria-label="Pause">❚❚</button><button class="hbtn mute-btn" aria-label="Mute">🔊</button>
+        <div class="hudtime" id="hud-time">90s</div>
+        <div class="hudpct"><b id="hud-pct">0%</b><small>CLEAN</small></div>
+        <div class="hudright"><div id="hud-coins">🪙 0</div><div id="hud-combo"></div></div><button class="hbtn boss-btn" aria-label="Boss key">📊</button>
+      </div>
+      <div class="hudbar"><i id="hud-fill"></i><div id="hud-marks"></div></div>
+      <div id="hud-water"><span>💧</span><div><i id="hud-water-fill"></i></div></div>
+    </div>
+    <div id="jobhud" class="hidden">
+      <div class="hudrow">
+        <button class="hbtn" id="job-pause" aria-label="Pause">❚❚</button>
+        <div class="jobmain"><small id="job-step">Job 1 of 2</small><b id="job-title">Clear skaters</b></div>
+        <div class="jobcount" id="job-count">0/8</div><button class="hbtn mute-btn" aria-label="Mute">🔊</button><button class="hbtn boss-btn" aria-label="Boss key">📊</button>
+      </div>
+      <div class="hudbar"><i id="job-fill"></i></div>
+      <div class="jobfoot"><div id="steps"></div><div id="job-hint">Tap skaters</div></div>
+    </div>
+    <div id="flickhud" class="hidden">
+      <div class="hudrow">
+        <button class="hbtn" id="fh-pause" aria-label="Pause">❚❚</button>
+        <div class="fhmain"><small id="fh-title">LEVEL 1</small><b id="fh-sub">Cup Pyramid</b></div>
+        <div class="fhscore" id="fh-score">0</div>
+        <button class="hbtn" id="fh-retry" aria-label="Retry">↻</button><button class="hbtn clip-btn" aria-label="Clip it">🎬</button><button class="hbtn mute-btn" aria-label="Mute">🔊</button><button class="hbtn boss-btn" aria-label="Boss key">📊</button>
+      </div>
+      <div class="fhrow2"><div id="fh-pucks"></div><div id="fh-combo"></div><div id="fh-left"></div></div>
+    </div>
+    <div id="fend" class="overlay hidden"><div class="card fendcard">
+      <h2 id="fe-title">LEVEL CLEAR!</h2><small id="fe-sub"></small>
+      <div id="fe-stars" class="festars"></div>
+      <div class="ferow"><div id="fe-grade" class="grade">A</div><div><b id="fe-score">0</b><span id="fe-pb" class="pbbadge hidden">NEW PB!</span></div></div>
+      <small id="fe-coins" class="fecoins"></small><small id="fe-stats"></small>
+      <button class="btn big" id="fe-next">NEXT LEVEL ▶</button>
+      <div class="fe3"><button class="btn ghost" id="fe-retry">↻ Retry</button><button class="btn ghost" id="fe-share">📤 Brag</button><button class="btn ghost clip-btn">🎬 Clip</button></div>
+      <button class="link" id="fe-home">⌂ Home</button>
+    </div></div>
+    <div id="pa"></div>
+    <div id="callouts"></div>
+    <button id="btn-finish" class="hidden">🏒 Wave players on — finish!</button>
+    <div id="pause" class="overlay hidden">
+      <div class="card">
+        <h2>Paused</h2>
+        <button class="btn" id="btn-resume">▶ Resume</button>
+        <button class="btn ghost" id="btn-restart">↻ Restart shift</button>
+        <button class="btn ghost" id="btn-quit">⌂ Home</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section id="results" class="screen hidden">
+    <div class="rescard">
+      <small id="res-event">Youth Practice · Community Rink</small>
+      <h1 id="res-title">ICE IS READY!</h1>
+      <div class="gradewrap"><div id="res-grade" class="grade">S</div><div class="scorebox"><small>SCORE</small><b id="res-score">0</b><span id="res-pb" class="pb hidden">🏆 NEW PB</span></div></div>
+      <div class="bigstars" id="res-stars"><i>★</i><i>★</i><i>★</i></div>
+      <div class="respct"><b id="res-pct">0%</b><span>clean</span></div>
+      <div class="resgrid">
+        <div><span>⏱ Time</span><b id="res-time">0s</b></div>
+        <div><span>🔥 Best combo</span><b id="res-combo">x1</b></div>
+        <div><span>🛣 Perfect lanes</span><b id="res-lanes">0</b></div>
+        <div><span>🪙 Coins</span><b id="res-coins">+0</b></div>
+        <div><span>⭐ Reputation</span><b id="res-rep">+0</b></div>
+        <div><span>👥 Fans</span><b id="res-fans">0</b></div>
+      </div>
+      <div class="resjobs" id="res-jobs"></div>
+      <div class="resnote" id="res-note"></div>
+      <div class="resbtns">
+        <button class="btn ghost" id="res-retry">↻ Retry</button>
+        <button class="btn big" id="res-next">Next ›</button>
+      </div>
+      <button class="btn ghost share" id="res-share">📤 Share brag card</button><button class="link" id="res-hub">⌂ Manager hub</button>
+    </div>
+  </section>
+
+  <!-- PRE-SHIFT MODAL -->
+  <div id="modal" class="overlay hidden">
+    <div class="card sheet" id="modal-card"></div>
+  </div>
+  <div id="toast"></div>
+  <div id="sign"><i class="fan"></i><b>MARRY ME ZAMBONI GUY</b></div>
+  <div id="chirp"></div>
+  <div id="boss" class="hidden">
+    <div class="xl-top"><span class="xl-logo">▦</span> Q3_Forecast_FINAL_v7.xlsx <span class="xl-saved">— Saved</span></div>
+    <div class="xl-menu">File&nbsp;&nbsp; Home&nbsp;&nbsp; Insert&nbsp;&nbsp; Formulas&nbsp;&nbsp; Data&nbsp;&nbsp; Review&nbsp;&nbsp; View</div>
+    <div class="xl-fx"><b>fx</b> =SUM(C4:C18)*(1+$B$2)</div>
+    <table class="xl">
+      <tr><th></th><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th></tr>
+      <tr><th>1</th><td colspan="2"><b>Regional Ops — Q3 Forecast</b></td><td></td><td></td><td></td></tr>
+      <tr><th>2</th><td>Growth adj.</td><td>3.5%</td><td></td><td></td><td></td></tr>
+      <tr><th>3</th><td><b>Line item</b></td><td><b>Q2 Act.</b></td><td><b>Q3 Fcst</b></td><td><b>Var</b></td><td><b>Owner</b></td></tr>
+      <tr><th>4</th><td>Facilities</td><td>42,180</td><td>43,656</td><td>1,476</td><td>MLC</td></tr>
+      <tr><th>5</th><td>Utilities</td><td>18,904</td><td>19,566</td><td>662</td><td>MLC</td></tr>
+      <tr><th>6</th><td>Equipment maint.</td><td>9,215</td><td>9,538</td><td>323</td><td>Ops</td></tr>
+      <tr><th>7</th><td>Vehicle fleet</td><td>12,770</td><td>13,217</td><td>447</td><td>Ops</td></tr>
+      <tr><th>8</th><td>Contractors</td><td>31,400</td><td>32,499</td><td>1,099</td><td>Fin</td></tr>
+      <tr><th>9</th><td>Training</td><td>4,120</td><td>4,264</td><td>144</td><td>HR</td></tr>
+      <tr><th>10</th><td>Software</td><td>7,845</td><td>8,120</td><td>275</td><td>IT</td></tr>
+      <tr><th>11</th><td>Travel</td><td>3,310</td><td>3,426</td><td>116</td><td>Fin</td></tr>
+      <tr><th>12</th><td>Misc.</td><td>1,950</td><td>2,018</td><td>68</td><td>—</td></tr>
+      <tr><th>13</th><td><b>Total</b></td><td><b>131,694</b></td><td class="sel"><b>136,304</b></td><td><b>4,610</b></td><td></td></tr>
+      <tr><th>14</th><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><th>15</th><td></td><td></td><td></td><td></td><td></td></tr>
+    </table>
+    <div class="xl-tabs"><span class="on">Summary</span><span>Detail</span><span>Assumptions</span></div>
+  </div>
+</div>
+<script src="js/data.js"></script>
+<script src="js/save.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/bubbles.js"></script>
+<script src="js/rink.js"></script>
+<script src="js/game.js"></script>
+<script src="js/jobs.js"></script>
+<script src="js/share.js"></script>
+<script src="js/clip.js"></script>
+<script src="js/flick.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/intro.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

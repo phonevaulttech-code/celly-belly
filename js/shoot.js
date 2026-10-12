@@ -640,7 +640,7 @@ IL.Shoot = (function () {
   }
   /* test hooks */
   function debug() { if (!S) return null; const launch = P(0, 0, PZ);
-    return { mode: S.mode, score: S.score, streak: S.streak, pucks: S.pucks, shots: S.shots, hits: S.hits, bars: S.bars, ended: S.ended, flying: !!S.puck, celly: S.celly, goalie: !!S.goalie, gk: S.goalie && { x: S.goalie.x, drop: S.goalie.drop, lift: S.goalie.lift, saveT: S.goalie.saveT, speed: S.goalie.speed },
+    return { mode: S.mode, score: S.score, streak: S.streak, pucks: S.pucks, shots: S.shots, hits: S.hits, bars: S.bars, ended: S.ended, flying: !!S.puck, celly: S.celly, goalie: !!S.goalie, gk: S.goalie && { home: S.goalie.home, x: S.goalie.x, drop: S.goalie.drop, lift: S.goalie.lift, saveT: S.goalie.saveT, speed: S.goalie.speed },
       target: null, zone: S.lastZone, launch, out: S.lastOut,
       li: S.li, stars: S.stars, wob: S.wob || 0, cleared: !!S.cleared, objs: S.objs ? S.objs.filter(o => !o.dead).map((o, i) => ({ k: o.k, i: S.objs.indexOf(o) })) : null }; }
   function _fire(u, v, curve) { fire({ u, v, curve: curve || 0, power: 1 }); }

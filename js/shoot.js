@@ -84,7 +84,7 @@ IL.Shoot = (function () {
   }
   function bind() {
     cv = $('shoot-canvas'); ctx = cv.getContext('2d');
-    cv.addEventListener('pointerdown', (e) => { if (!S || S.ended || S.puck) return; IL.Audio.resume && IL.Audio.resume(); drag = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, id: e.pointerId, t0: performance.now(), path: [] }; e.preventDefault(); });
+    cv.addEventListener('pointerdown', (e) => { if (S && S.replay) { endReplay(); e.preventDefault(); return; } if (!S || S.ended || S.puck) return; IL.Audio.resume && IL.Audio.resume(); drag = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, id: e.pointerId, t0: performance.now(), path: [] }; e.preventDefault(); });
     cv.addEventListener('pointermove', (e) => { if (drag && drag.id === e.pointerId) { drag.x = e.clientX; drag.y = e.clientY; drag.path.push([e.clientX, e.clientY]); if (drag.path.length > 40) drag.path.shift(); } });
     cv.addEventListener('pointerup', (e) => { if (drag && drag.id === e.pointerId) { const a = aimFrom(drag); drag = null; if (a) fire(a); } });
     cv.addEventListener('pointercancel', () => drag = null);
@@ -97,7 +97,7 @@ IL.Shoot = (function () {
     $('se-share').onclick = share;
   }
   function fire(a) {
-    if (!S || S.ended || S.puck || S.pucks <= 0) return;
+    if (!S || S.ended || S.puck || S.pucks <= 0 || S.replay) return;
     S.shots++;
     let fu = a.u, fv = a.v;                                        // lands exactly where the preview showed (no aim assist, no spread)
     if (S.mode === 'pints') { const d = drift(); fu += d.u; fv += d.v; S.pucks--; S.shotKnocks = 0; }
@@ -106,6 +106,15 @@ IL.Shoot = (function () {
   }
 
   /* ---------- resolve at the goal plane ---------- */
+  let robMode = null;
+  function robChance(streak, u, v, curve) {
+    if (Math.abs(u) <= 0.6) return 0;                                  // non-corners are decided by his gear
+    let c = 0.15 + Math.min(10, streak) * 0.025;
+    if (v > 0.85 && Math.abs(u) > 0.75) c *= 0.6;                      // precise top-corner snipe under the bar
+    if (Math.abs(curve || 0) > 0.15) c *= 0.6;                         // deke
+    return c;
+  }
+  function roar(lv) { const r = Math.random(); if (lv >= 2) { IL.Audio.cheer(true); if (r < 0.35) setTimeout(() => IL.Audio.organ(), 350); else if (r < 0.7) setTimeout(() => IL.Audio.cheer(false), 600); } else if (r < 0.5) IL.Audio.cheer(false); else { IL.Audio.cheer(true); } }
   function zone(u, v, gx) {
     const top = v > 0.72, corner = Math.abs(u) > 0.6, low = v < 0.25;
     if (top && corner) return ['TOP CORNER', 300]; if (top) return ['TOP SHELF', 200]; if (low && corner) return ['LOW CORNER', 200];
@@ -124,6 +133,12 @@ IL.Shoot = (function () {
       else if (onBar || onPost) out = 'ding';
       else if (inMouth) out = 'goal';
     }
+    // he occasionally robs even a good corner shot: ~15% at streak 0 → ~40% at streak 10+. Snipes under the bar and dekes keep the best odds.
+    if (gl && (out === 'goal' || out === 'postin')) {
+      const ch = robMode === 'off' ? 0 : robMode === 'always' ? 1 : robChance(S.streak, p.fu, p.fv, p.a.curve);
+      if (ch > 0 && S.r() < ch) { out = 'save'; p.savedBy = p.fu > gl.x ? 'glove' : 'blocker'; p.cornerRob = true;
+        gl.x += clamp(p.fu * 0.6 - gl.x, -0.18, 0.18); if (p.fv > 0.55) gl.lift = 1; else gl.drop = 1; }
+    }
     p.out = out; p.endX = X; p.endY = Y; S.lastOut = out;
     const mult = 1 + Math.floor(S.streak / 3);
     if (out === 'goal' || out === 'bardown' || out === 'postin') {
@@ -140,13 +155,15 @@ IL.Shoot = (function () {
       if (S.streak % 5 === 0 && S.pucks < 3) { S.pucks++; setTimeout(() => say('STREAK ' + S.streak + '  +1 PUCK', 'gold'), 650); }
       if (base >= 300 || S.streak % 5 === 0) { S.celly = 1.1; setTimeout(() => S && IL.Audio.bump(), 380); }
       burst(p.fu, p.fv, out === 'bardown' ? '#ffcf3f' : '#ff1f35');
+      S.light = 1.6; S.ripple = { u: p.fu, v: p.fv, t: 0 }; roar(out === 'bardown' || base >= 300 ? 2 : S.streak >= 3 ? 2 : 1);
+      if (out === 'bardown' || S.streak % 10 === 0) p.replay = true;
       setTimeout(() => S && !S.ended && nextTarget(), 450);
     } else if (out === 'ding') {
       IL.Audio.ping(); S.dings++; S.score += 25; S.pucks--; say('DING!  SO CLOSE', 'soft'); IL.Audio.haptic([10, 40, 10]); S.stop = 0.06;
       setTimeout(() => S && !S.ended && !S.puck && nextTarget(), 650);
     } else {
       S.streak = 0; S.pucks--;
-      if (out === 'save') { IL.Audio.thunk(); IL.Audio.cheer(false); say('ROBBED!', 'robbed'); S.stop = 0.12; if (gl) { gl.saveT = 0.7; gl.glove = p.savedBy === 'glove' ? 1 : 0; } if (p.savedBy === 'glove') p.caught = true; }
+      if (out === 'save') { IL.Audio.thunk(); IL.Audio.cheer(Math.random() < 0.5); say('ROBBED!', 'robbed'); S.stop = 0.12; if (gl) { const c = UV(gl.x, 0.6); for (let i = 0; i < 14; i++) { const a = Math.random() * 6.28, sp = 70 + Math.random() * 110; S.parts.push({ x: c.x, y: c.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 80, life: 0.6, col: i % 2 ? '#7fe7ff' : '#ffffff' }); } gl.saveT = 1.1; gl.glove = p.savedBy === 'glove' ? 1 : 0; } if (p.savedBy === 'glove') p.caught = true; }
       else { IL.Audio.board(0.4); say('WIDE', 'bad'); }
       setTimeout(() => S && !S.ended && !S.puck && nextTarget(), 650);
       IL.Audio.haptic(30);
@@ -162,6 +179,8 @@ IL.Shoot = (function () {
     update(dt); render(); raf = requestAnimationFrame(frame);
   }
   function update(dt) {
+    S.light = Math.max(0, (S.light || 0) - dt); if (S.ripple) { S.ripple.t += dt; if (S.ripple.t > 0.9) S.ripple = null; }
+    if (S.replay) { S.replay.t += dt; S.t += dt * 0.35; if (S.replay.t >= S.replay.dur) endReplay(); return; }   // slow-mo replay (~1s, tap to skip)
     S.t += dt; S.shake = Math.max(0, S.shake - dt * 30); S.celly = Math.max(0, S.celly - dt);
     if (S.goalie) {
       const g = S.goalie, p0 = S.puck; g.saveT = Math.max(0, g.saveT - dt);
@@ -190,13 +209,14 @@ IL.Shoot = (function () {
         else if (o === 'miss') { p.Z += dt * 6; }
         else if (p.caught) { p.hide = true; }
         else { p.Z = Math.max(PZ + 0.8, p.Z - dt * 3); p.Y = Math.max(0, p.Y - dt * 2); p.X += (o === 'ding' ? Math.sign(p.X || 1) : 0) * dt; }
-        if (p.t2 > 0.5) { S.puck = null; if (S.mode === 'pints') pintCheck(); else if (S.pucks <= 0) end(); }
+        if (p.t2 > 0.5) { S.puck = null; if (p.replay && p.rec) S.replay = { path: p.rec, t: 0, dur: 1.0 }; else if (S.mode === 'pints') pintCheck(); else if (S.pucks <= 0) end(); }
       }
-      p.trail.push([p.X, p.Y, p.Z]); if (p.trail.length > 7) p.trail.shift();
+      p.trail.push([p.X, p.Y, p.Z]); if (p.trail.length > 7) p.trail.shift(); (p.rec = p.rec || []).push([p.X, p.Y, p.Z]);
     }
     if (S.objs) S.objs.forEach(o => { if (o.dead) { o.dt += dt; o.X += o.vx * dt; o.Y += o.vy * dt; o.vy -= 6 * dt; o.Z += o.vz * dt; } else if (o.hitT) o.hitT = Math.max(0, o.hitT - dt); });
     for (let i = S.parts.length - 1; i >= 0; i--) { const q = S.parts[i]; q.life -= dt; if (q.life <= 0) { S.parts.splice(i, 1); continue; } q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 300 * dt; }
   }
+  function endReplay() { if (!S || !S.replay) return; S.replay = null; if (S.pucks <= 0) end(); }
   function burst(u, v, col) { const c = UV(u, v); for (let i = 0; i < 10; i++) { const a = Math.random() * 6.28, s = 60 + Math.random() * 90; S.parts.push({ x: c.x, y: c.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60, life: 0.5, col }); } }
 
   /* ---------- render (calm: white ice, red goal, navy) ---------- */
@@ -224,6 +244,7 @@ IL.Shoot = (function () {
       for (let i = 1; i < 6; i++) { const k = i / 6; g.beginPath(); g.moveTo(f0.x + (b0.x - f0.x) * k, f0.y + (b0.y - f0.y) * k); g.lineTo(f1.x + (b1.x - f1.x) * k, f1.y + (b1.y - f1.y) * k); g.stroke(); }
       for (let i = 1; i < 6; i++) { const k = i / 6; g.beginPath(); g.moveTo(f0.x + (f1.x - f0.x) * k, f0.y + (f1.y - f0.y) * k); g.lineTo(b0.x + (b1.x - b0.x) * k, b0.y + (b1.y - b0.y) * k); g.stroke(); } });
     { const bBot = P(0, 0, ZG + 3.5).y, sx2 = ((S.t * 0.12) % 1.6 - 0.3) * W, sh2 = g.createLinearGradient(sx2 - 90, 0, sx2 + 90, 0); sh2.addColorStop(0, 'rgba(255,255,255,0)'); sh2.addColorStop(0.5, 'rgba(255,255,255,.22)'); sh2.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = sh2; g.fillRect(0, bBot, W, H - bBot); }
+    if (S.ripple) { const r0 = S.ripple, c = UV(r0.u, r0.v), k = r0.t / 0.9; g.save(); for (let i = 0; i < 3; i++) { const kk = Math.max(0, k - i * 0.15); if (!kk) continue; g.strokeStyle = 'rgba(255,255,255,' + (0.8 * (1 - kk)) + ')'; g.lineWidth = 2.5 * (1 - kk) + 0.5; g.beginPath(); g.ellipse(c.x, c.y, 8 + kk * 70, 5 + kk * 45, 0, 0, 7); g.stroke(); } g.restore(); }
     // goalie
     if (S.goalie) drawGoalie(g, S.goalie);
     if (S.target && S.mode !== 'pints') drawTarget(g, S.target);
@@ -251,6 +272,19 @@ IL.Shoot = (function () {
     drawStick(g);
     S.parts.forEach(q => { g.globalAlpha = q.life * 2; g.fillStyle = q.col; g.beginPath(); g.arc(q.x, q.y, 2.5, 0, 7); g.fill(); }); g.globalAlpha = 1;
     if (S.celly) drawCelly(g);
+    { // goal light above the glass: flashes red on goals
+      const L0 = P(0, GH + 0.55, ZG + 1.4), on = S.light > 0 && Math.floor(S.light * 8) % 2 === 0, rr2 = 0.09 * L0.k;
+      if (S.light > 0) { const gr = g.createRadialGradient(L0.x, L0.y, 0, L0.x, L0.y, rr2 * 9); gr.addColorStop(0, 'rgba(255,40,40,' + (on ? 0.7 : 0.35) + ')'); gr.addColorStop(1, 'rgba(255,0,0,0)'); g.fillStyle = gr; g.fillRect(L0.x - rr2 * 9, L0.y - rr2 * 9, rr2 * 18, rr2 * 18);
+        g.fillStyle = 'rgba(255,30,40,' + (on ? 0.1 : 0.04) + ')'; g.fillRect(0, 0, W, H); }
+      g.fillStyle = '#0a0c14'; g.fillRect(L0.x - rr2 * 1.3, L0.y + rr2 * 0.5, rr2 * 2.6, rr2 * 0.7);
+      g.beginPath(); g.arc(L0.x, L0.y + rr2 * 0.5, rr2, Math.PI, 0); g.fillStyle = S.light > 0 && on ? '#ff3b3b' : S.light > 0 ? '#c41a1a' : '#5a1a22'; g.fill(); g.lineWidth = 2; g.strokeStyle = '#0a0c14'; g.stroke();
+    }
+    if (S.replay) { const R1 = S.replay, n = R1.path.length, i = Math.min(n - 1, Math.floor(R1.t / R1.dur * n)), q = R1.path[i];
+      g.save(); g.globalCompositeOperation = 'lighter'; for (let j = Math.max(0, i - 8); j < i; j++) { const w = R1.path[j], s3 = P(w[0], w[1], w[2]); g.fillStyle = 'rgba(255,170,40,' + (0.12 + 0.05 * (j - i + 8)) + ')'; g.beginPath(); g.arc(s3.x, s3.y, PUCK * s3.k * 1.3, 0, 7); g.fill(); } g.restore();
+      drawPuck(g, q[0], q[1], q[2]);
+      g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(0, 0, W, 54); g.fillRect(0, H - 54, W, 54);
+      g.fillStyle = '#ff1f35'; g.beginPath(); g.arc(22, H - 27, 6, 0, 7); g.fill(); g.fillStyle = '#fff'; g.font = 'italic 900 18px Impact,"Arial Black",sans-serif'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('REPLAY', 34, H - 27);
+      g.textAlign = 'right'; g.font = 'italic 700 13px system-ui'; g.fillText('tap to skip', W - 14, H - 27); }
     if (!S.shots && !drag) { const k = (S.t * 0.8) % 1, c = P(0, 0, PZ); g.globalAlpha = 1 - k; g.fillStyle = '#0d1b33'; g.beginPath(); g.arc(c.x, c.y - 40 - k * 90, 7, 0, 7); g.fill(); g.globalAlpha = 1; }
     g.restore();
   }
@@ -312,11 +346,11 @@ IL.Shoot = (function () {
     if (!t.pop) { g.fillStyle = '#ffe14a'; g.strokeStyle = '#0a0c14'; g.lineWidth = 3; g.font = 'italic 900 12px Impact,"Arial Black",sans-serif'; g.textAlign = 'center'; g.strokeText(t.name, c.x, c.y + r + 14); g.textAlign = 'center'; g.fillText(t.name, c.x, c.y + r + 14); }
   }
   function drawGoalie(g, gl) {
-    const k = f / ZG, U = (u, v) => UV(u, v), x = gl.x, d = gl.drop, sv2 = gl.saveT > 0 ? Math.sin(gl.saveT / 0.7 * Math.PI) : 0;
+    const k = f / ZG, U = (u, v) => UV(u, v), x = gl.x, d = gl.drop, sv2 = gl.saveT > 0 ? Math.sin(Math.min(1, gl.saveT / 0.7) * Math.PI) : 0;
     const OL = '#0a0c14', lw = Math.max(2.5, k * 0.018);
     const box = (u, v, hu, hv, fill, rad) => { const a = U(u - hu, v + hv), b = U(u + hu, v - hv); g.beginPath(); IL.R.rr(g, a.x, a.y, b.x - a.x, b.y - a.y, rad || 6); g.fillStyle = fill; g.fill(); g.lineWidth = lw; g.strokeStyle = OL; g.stroke(); };
     const metal = (y0, y1, c0, c1) => { const gr = g.createLinearGradient(0, y0, 0, y1); gr.addColorStop(0, c0); gr.addColorStop(0.5, c1); gr.addColorStop(0.52, c0); gr.addColorStop(1, c1); return gr; };
-    g.save();
+    g.save(); if (sv2 > 0) g.translate(0, -Math.sin(Math.min(1, (1.1 - gl.saveT) / 0.5) * Math.PI) * 14);
     // shadow on the ice
     const sh = U(x, 0); g.fillStyle = 'rgba(10,20,60,.25)'; g.beginPath(); g.ellipse(sh.x, sh.y + 3, 0.5 * GW * k * (1 + d * 0.4), 7, 0, 0, 7); g.fill();
     // pads
@@ -397,7 +431,9 @@ IL.Shoot = (function () {
     const cone = (x) => O.push({ k: 'cone', X: x, Y: 0.11, Z: ZG - 1.15, w: 0.16, h: 0.22 });
     const tray = () => O.push({ k: 'tray', X: 0, Y: GH + POST + 0.04, Z: ZG, w: 0.34, h: 0.08 });
     const side = r() < 0.5 ? -1 : 1;
-    switch (tpl) {
+    if (li < 5) {                                                      // gentle opener: open shots, no blockers in pints 1-5
+      [() => pyramid(3, 0), () => barCans([-0.5, 0, 0.5]), () => { tray(); barCans([-0.6, 0.6]); }, () => { pyramid(3, 0); barCans([-0.62, 0.62]); }, () => { tray(); barCans([-0.66, -0.33, 0.33, 0.66]); }][li]();
+    } else switch (tpl) {
       case 0: pyramid(3 + Math.min(1, tier), 0); break;
       case 1: barCans(tier ? [-0.66, -0.33, 0, 0.33, 0.66] : [-0.5, 0, 0.5]); break;
       case 2: cooler(side); cone(-side * 0.42); break;
@@ -409,7 +445,7 @@ IL.Shoot = (function () {
     if (tier >= 3 && tpl !== 1 && tpl !== 3 && tpl !== 5) barCans([-0.62, 0.62]);
     O.forEach(o => { o.dead = false; o.dt = 0; o.vx = 0; o.vy = 0; o.vz = 0; o.hp = o.hp || 1; o.hitT = 0; });
     const est = (O.some(o => o.k === 'can' && !o.bar) ? 2 : 0) + Math.ceil(O.filter(o => o.bar).length / 2) + O.filter(o => o.k === 'cooler').length * 2 + O.filter(o => o.k === 'cone' || o.k === 'tray').length;
-    const pucks = Math.max(est + 1, Math.min(8, est + 3 - Math.floor(tier / 2)));
+    const pucks = Math.max(est + 1, Math.min(8, est + 3 - Math.floor(tier / 2))) + (li < 5 ? 1 : 0);
     return { li, goalie: li >= 8 && li % 3 === 2, name: NAMES[tpl] + (tier ? ' ' + ['', 'II', 'III', 'IV', 'V'][tier] : ''), objs: O, pucks, star3: pucks >= 5 ? 2 : 1, wob: Math.min(0.3, 0.025 + li * 0.011) };
   }
   function startPint(li) {
@@ -468,16 +504,18 @@ IL.Shoot = (function () {
     const bonus = cleared ? S.pucks * 300 : 0; S.score += bonus;
     const prev = ps.stars[S.li] || 0, first = cleared && !prev;
     if (cleared) { ps.stars[S.li] = Math.max(prev, S.stars); ps.unlocked = Math.max(ps.unlocked, S.li + 2); }
-    const coins = cleared ? 10 + S.stars * 10 + (first ? 20 : 0) : 2; IL.save.coins += coins; IL.persist();
+    const perfect = cleared && S.stars === 3; S.perfect = perfect;
+    const coins = cleared ? 10 + S.stars * 10 + (first ? 20 : 0) + (perfect ? 25 : 0) : 2; IL.save.coins += coins; IL.persist();
+    if (perfect) { say('PERFECT PINT!', 'fire'); IL.Audio.organ(); for (let i = 0; i < 40; i++) S.parts.push({ x: Math.random() * W, y: -10 - Math.random() * 80, vx: (Math.random() - 0.5) * 60, vy: 60 + Math.random() * 120, life: 1.2, col: i % 3 ? '#fff6d6' : '#ffd23f' }); }
     if (cleared && S.stars === 3) { S.celly = 1.1; setTimeout(() => S && IL.Audio.bump(), 380); }
     setTimeout(() => {
       if (!S) return;
       $('se-mode').textContent = 'PINT ' + (S.li + 1) + (cleared ? ' · CLEARED' : ' · OUT OF PUCKS');
       $('se-stars').innerHTML = [0, 1, 2].map(i => '<i class="' + (i < S.stars ? 'on' : '') + '">★</i>').join('');
       $('se-score').textContent = S.score.toLocaleString(); $('se-pb').classList.toggle('hidden', !(cleared && S.stars > prev));
-      $('se-pb').textContent = first ? 'NEW PINT UNLOCKED' : 'MORE STARS';
+      $('se-pb').textContent = perfect ? 'PERFECT PINT +25 🪙' : first ? 'NEW PINT UNLOCKED' : 'MORE STARS'; if (perfect) $('se-pb').classList.remove('hidden');
       $('se-stats').textContent = cleared ? (S.pucks ? S.pucks + ' spare puck' + (S.pucks > 1 ? 's' : '') + ' +' + bonus : 'Cleared on the last puck!') + (S.stars < 3 ? ' · ★★★ needs ' + L.star3 + ' spare' : '') : 'So close. ' + S.objs.filter(o => !o.dead).length + ' left standing.';
-      $('se-coins').textContent = '+' + coins + ' 🪙';
+      $('se-coins').textContent = '+' + coins + ' 🪙'; IL.Meta.coinToast(coins);
       $('se-retry').textContent = cleared ? (S.li < PINTS - 1 ? 'NEXT PINT ▶' : 'LAST CALL — ALL DONE 🏆') : 'ONE MORE TRY ↻';
       $('se-levels').classList.remove('hidden'); $('se-levels').textContent = 'Pints';
       $('s-end').classList.remove('hidden'); if (cleared) { IL.Audio.win(); if (S.stars === 3) IL.Meta.horn(); } else IL.Audio.grade('C');
@@ -579,7 +617,7 @@ IL.Shoot = (function () {
     s.last = S.mode === 'endless' ? { score: S.score, gap: pb ? 0 : gap } : s.last;
     $('se-score').textContent = S.score.toLocaleString(); $('se-pb').classList.toggle('hidden', !pb && !near); $('se-pb').textContent = pb ? 'NEW BEST' : 'ONLY ' + gap.toLocaleString() + ' FROM YOUR BEST!';
     $('se-stats').textContent = 'Best streak ' + S.bestStreak + ' · ' + S.hits + ' goals · ' + S.bars + ' bar down' + (S.mode === 'weekly' ? ' · #' + S.rank + ' of your runs this week' : S.mode === 'daily' ? '' : ' · Best ' + s.best.toLocaleString());
-    $('se-coins').textContent = coins ? '+' + coins + ' 🪙' : '';
+    $('se-coins').textContent = coins ? '+' + coins + ' 🪙' : ''; if (coins) IL.Meta.coinToast(coins);
     $('s-end').classList.remove('hidden'); if (pb) IL.Audio.win(); else IL.Audio.grade('B');
     $('se-retry').textContent = 'PLAY AGAIN'; $('se-stars').textContent = ''; $('se-levels').classList.toggle('hidden', S.mode !== 'weekly'); $('se-levels').textContent = 'Leaderboard';
     setTimeout(() => { try { $('se-retry').focus({ preventScroll: true }); } catch (e) {} }, 200);
@@ -640,11 +678,11 @@ IL.Shoot = (function () {
   }
   /* test hooks */
   function debug() { if (!S) return null; const launch = P(0, 0, PZ);
-    return { mode: S.mode, score: S.score, streak: S.streak, pucks: S.pucks, shots: S.shots, hits: S.hits, bars: S.bars, ended: S.ended, flying: !!S.puck, celly: S.celly, goalie: !!S.goalie, gk: S.goalie && { home: S.goalie.home, x: S.goalie.x, drop: S.goalie.drop, lift: S.goalie.lift, saveT: S.goalie.saveT, speed: S.goalie.speed },
+    return { mode: S.mode, score: S.score, streak: S.streak, pucks: S.pucks, shots: S.shots, hits: S.hits, bars: S.bars, ended: S.ended, flying: !!S.puck, celly: S.celly, goalie: !!S.goalie, light: S.light || 0, ripple: !!S.ripple, replay: !!S.replay, perfect: !!S.perfect, gk: S.goalie && { home: S.goalie.home, x: S.goalie.x, drop: S.goalie.drop, lift: S.goalie.lift, saveT: S.goalie.saveT, speed: S.goalie.speed },
       target: null, zone: S.lastZone, launch, out: S.lastOut,
       li: S.li, stars: S.stars, wob: S.wob || 0, cleared: !!S.cleared, objs: S.objs ? S.objs.filter(o => !o.dead).map((o, i) => ({ k: o.k, i: S.objs.indexOf(o) })) : null }; }
   function _fire(u, v, curve) { fire({ u, v, curve: curve || 0, power: 1 }); }
   // inverse of aimFrom for a given flick duration: returns a screen swipe vector that lands on (u, v)
   function swipeFor(u, v) { return { dx: u * KX(), dy: -(v * KY() + Y0) }; }
-  return { skin, skinSave, init, start, stop, debug, renderHome, _fire, swipeFor, aimAt, openPints, openSkins, shareCard, PINTS, SKINS, buildPint, _fireAt: (i) => { const a = aimAt(i); if (a) fire({ u: a.u, v: a.v, curve: 0, power: 1 }); }, _noWob: () => { if (S) S.wob = 0; }, _pucks: (n) => { if (S) { S.pucks = n; hud(); } }, _end: () => { if (S) { S.pucks = 0; end(); } }, get active() { return !!S; } };
+  return { skin, skinSave, init, start, stop, debug, renderHome, _fire, swipeFor, aimAt, openPints, openSkins, shareCard, PINTS, SKINS, buildPint, _fireAt: (i) => { const a = aimAt(i); if (a) fire({ u: a.u, v: a.v, curve: 0, power: 1 }); }, _noWob: () => { if (S) S.wob = 0; }, robChance, _robs: (m) => { robMode = m; }, _pucks: (n) => { if (S) { S.pucks = n; hud(); } }, _end: () => { if (S) { S.pucks = 0; end(); } }, get active() { return !!S; } };
 })();

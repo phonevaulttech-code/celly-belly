@@ -581,3 +581,20 @@ body.streamer #btn-streamer{background:#ff4d5e;color:#fff}
 #login-bonus{display:flex;align-items:center;gap:10px;background:linear-gradient(180deg,#ffe14a,#ff9a1f);color:#0a0c14;border:3px solid #0a0c14;border-radius:14px;padding:8px 10px 8px 14px;font:italic 900 15px var(--hz-font);box-shadow:0 4px 0 #0a0c14,0 0 18px rgba(255,200,40,.5);transform:skewX(-8deg)}
 #login-bonus.hidden{display:none}
 #lb-claim{background:linear-gradient(180deg,#ff8a6a,#ff1f35 45%,#b30016 52%,#ff4d5e);color:#fff;border:2px solid #0a0c14;border-radius:10px;padding:6px 12px;font:italic 900 14px var(--hz-font);text-shadow:1px 1px 0 #0a0c14}
+
+/* v9: shop preview, NEW badges, coin toast, login calendar */
+.stpv{margin:4px 14px 6px;border:3px solid #0a0c14;border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 4px 0 #0a0c14}
+#st-pv{display:block;width:100%;height:110px}
+.stpvrow{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:linear-gradient(180deg,#2a3352,#0d1124);color:#fff;font:italic 900 15px var(--hz-font)}
+#st-buy{background:linear-gradient(180deg,#ff8a6a,#ff1f35 45%,#b30016 52%,#ff4d5e);color:#fff;border:2px solid #0a0c14;border-radius:10px;padding:6px 12px;font:italic 900 14px var(--hz-font)}
+#st-buy:disabled{filter:grayscale(1);opacity:.7}#st-buy.hidden{display:none}
+#st-grid .skin{position:relative}#st-grid .skin.sel{outline:3px solid #ffe14a;outline-offset:1px}
+.newb{position:absolute;top:-6px;right:-4px;background:#ffe14a;color:#0a0c14;border:2px solid #0a0c14;border-radius:8px;padding:1px 6px;font:italic 900 11px var(--hz-font);transform:rotate(8deg)}
+#st-ad:disabled{opacity:.6}
+#cointoast{position:fixed;left:50%;top:70px;transform:translate(-50%,-20px);opacity:0;pointer-events:none;z-index:50;background:linear-gradient(180deg,#ffe14a,#ff9a1f);color:#0a0c14;border:3px solid #0a0c14;border-radius:20px;padding:6px 16px;font:italic 900 22px var(--hz-font);box-shadow:0 4px 0 #0a0c14}
+#cointoast.show{animation:ctoast 1.6s ease-out forwards}
+@keyframes ctoast{0%{opacity:0;transform:translate(-50%,-20px) scale(.6)}15%{opacity:1;transform:translate(-50%,0) scale(1.1)}25%{transform:translate(-50%,0) scale(1)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-30px)}}
+#login-bonus{flex-direction:column;align-items:stretch}.lbtop{display:flex;align-items:center;gap:10px;justify-content:space-between}
+#lb-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:6px}
+#lb-cal i{font-style:normal;text-align:center;background:rgba(10,12,20,.15);border-radius:6px;padding:2px 0;font:italic 800 11px var(--hz-font)}#lb-cal i b{display:block;font-size:9px;opacity:.7}
+#lb-cal i.got{background:#0a0c14;color:#ffe14a}#lb-cal i.now{background:#ff1f35;color:#fff;box-shadow:0 0 0 2px #0a0c14}

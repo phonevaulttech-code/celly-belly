@@ -30,7 +30,7 @@
       <canvas id="nh-art" width="320" height="200"></canvas>
       <h1 class="gtitle gt">Celly Belly</h1>
       <p class="ntag">TOP SHELF, BOTTOM BARREL</p>
-      <div id="login-bonus" class="hidden"><span id="lb-txt">🎁 Daily bonus</span><button id="lb-claim">CLAIM</button></div>
+      <div id="login-bonus" class="hidden"><div class="lbtop"><span id="lb-txt">🎁 Daily bonus</span><button id="lb-claim">CLAIM</button></div><div id="lb-cal"></div></div>
       <p class="nbest" id="nh-best">Best 0 · Streak 0</p>
       <button class="nplay" id="btn-shoot">PLAY</button>
       <button class="nplay beerb" id="btn-pints">BEER LEAGUE<small id="pints-sub">Pint 1</small></button>
@@ -77,6 +77,7 @@
   <!-- SHOP: one grid, virtual coins only -->
   <section id="store" class="screen hidden">
     <header class="nhtop"><button class="npill icon" id="st-back" aria-label="Back">‹</button><b class="pltitle">SHOP</b><span class="npill" id="st-coins">🪙 0</span></header>
+    <div class="stpv"><canvas id="st-pv" width="320" height="120"></canvas><div class="stpvrow"><b id="st-pv-name">Classic</b><button id="st-buy" class="hidden">BUY</button></div></div>
     <div id="st-grid"></div>
     <div class="stfoot"><button class="nlink2" id="st-ad">▶ Watch ad for 50 🪙 <small>(placeholder)</small></button><small>Virtual coins only — earned in-game. No real money, no purchases.</small></div>
     <div id="adstub" class="hidden"><div><small>AD PLACEHOLDER</small><b id="ad-count">3</b><p>No real ad here yet — this is where a rewarded ad would play.</p></div></div>
@@ -255,7 +256,8 @@
   <div id="modal" class="overlay hidden">
     <div class="card sheet" id="modal-card"></div>
   </div>
-  <div id="toast"></div>
+  <div id="cointoast"></div>
+<div id="toast"></div>
   <div id="sign"><i class="fan"></i><b>MARRY ME ZAMBONI GUY</b></div>
   <div id="chirp"></div>
   <div id="boss" class="hidden">

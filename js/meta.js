@@ -57,37 +57,65 @@ IL.Meta = (function () {
   }
   const KIND = { puck: 'Puck', tape: 'Stick tape', horn: 'Goal horn' };
   function openShop(from) {
-    back = from || back; if (IL.Shoot.active) IL.Shoot.stop(true); IL.UI.show('store'); renderShop();
+    back = from || back; if (IL.Shoot.active) IL.Shoot.stop(true); IL.UI.show('store'); sel = null; renderShop(); adButton();
   }
+  let sel = null;
   function renderShop() {
-    const ss = IL.Shoot.skinSave(), grid = $('st-grid'); grid.innerHTML = ''; $('st-coins').textContent = '🪙 ' + IL.save.coins.toLocaleString();
+    const ss = IL.Shoot.skinSave(), grid = $('st-grid'); grid.innerHTML = ''; $('st-coins').textContent = '🪙 ' + IL.save.coins.toLocaleString(); ss.seen = ss.seen || [];
     ['puck', 'tape', 'horn'].forEach(kind => IL.Shoot.SKINS[kind].forEach(it => {
       const own = ss.owned.indexOf(it.id) >= 0, on = ss[kind] === it.id, b = document.createElement('button');
-      b.className = 'skin' + (on ? ' on' : ''); b.dataset.id = it.id;
+      const isNew = !own && ss.seen.indexOf(it.id) < 0 && IL.save.coins >= it.price;
+      b.className = 'skin' + (on ? ' on' : '') + (sel && sel.it.id === it.id ? ' sel' : ''); b.dataset.id = it.id;
       const sw = kind === 'puck' ? '<i class="sw puck" style="background:' + it.top + ';border-color:' + it.col + '"></i>' : kind === 'tape' ? '<i class="sw tape" style="background:' + it.col + '"></i>' : '<i class="sw horn">📯</i>';
-      b.innerHTML = sw + '<b>' + it.name + '</b><small class="k">' + KIND[kind] + '</small><small>' + (on ? 'Equipped' : own ? 'Equip' : '🪙 ' + it.price) + '</small>';
-      b.onclick = () => {
-        if (!own) { if (IL.save.coins < it.price) { IL.UI.toast('Need 🪙 ' + (it.price - IL.save.coins) + ' more'); return; } IL.save.coins -= it.price; ss.owned.push(it.id); IL.Audio.purchase(); }
-        else IL.Audio.click();
-        ss[kind] = it.id; IL.persist(); renderShop(); if (kind === 'horn') horn();
-      };
+      b.innerHTML = (isNew ? '<em class="newb">NEW</em>' : '') + sw + '<b>' + it.name + '</b><small class="k">' + KIND[kind] + '</small><small>' + (on ? 'Equipped' : own ? 'Equip' : '🪙 ' + it.price) + '</small>';
+      b.onmouseenter = () => preview(kind, it, false);
+      b.onclick = () => { if (own) { IL.Audio.click(); ss[kind] = it.id; IL.persist(); preview(kind, it, true); renderShop(); if (kind === 'horn') horn(); } else preview(kind, it, true); };
       grid.appendChild(b);
     }));
+    if (!sel) preview('puck', IL.Shoot.skin('puck'), false);
   }
+  // preview pane: shows the puck on the ice or the taped blade; tap to select, then BUY
+  function preview(kind, it, pick) {
+    const ss = IL.Shoot.skinSave(), own = ss.owned.indexOf(it.id) >= 0;
+    if (ss.seen.indexOf(it.id) < 0) { ss.seen.push(it.id); IL.persist(); }
+    if (pick) { sel = { kind, it }; document.querySelectorAll('#st-grid .skin').forEach(e => e.classList.toggle('sel', e.dataset.id === it.id)); const nb = document.querySelector('#st-grid .skin[data-id="' + it.id + '"] .newb'); if (nb) nb.remove(); }
+    const c = $('st-pv'), g = c.getContext('2d'), w = c.width, h = c.height; g.clearRect(0, 0, w, h);
+    const ice = g.createLinearGradient(0, 0, 0, h); ice.addColorStop(0, '#bfe6ff'); ice.addColorStop(1, '#ffffff'); g.fillStyle = ice; g.fillRect(0, 0, w, h);
+    g.strokeStyle = 'rgba(232,17,45,.5)'; g.lineWidth = 3; g.beginPath(); g.moveTo(0, h * 0.82); g.lineTo(w, h * 0.82); g.stroke();
+    const pk = kind === 'puck' ? it : IL.Shoot.skin('puck'), tp = kind === 'tape' ? it : IL.Shoot.skin('tape');
+    g.save(); g.translate(w * 0.36, h * 0.62); g.rotate(-0.12); g.fillStyle = '#20242c'; g.beginPath(); IL.R.rr(g, -70, -14, 110, 28, 8); g.fill(); g.fillStyle = tp.col; g.fillRect(-48, -14, 44, 28); g.strokeStyle = '#2b2f38'; g.lineWidth = 14; g.lineCap = 'round'; g.beginPath(); g.moveTo(-70, 0); g.lineTo(-130, -90); g.stroke(); g.restore();
+    const px = w * 0.72, py = h * 0.62; g.fillStyle = 'rgba(10,20,60,.25)'; g.beginPath(); g.ellipse(px + 4, py + 16, 34, 9, 0, 0, 7); g.fill();
+    g.fillStyle = pk.col; g.beginPath(); g.ellipse(px, py + 8, 30, 12, 0, 0, 7); g.fill(); g.fillRect(px - 30, py - 4, 60, 12); g.fillStyle = pk.top; g.beginPath(); g.ellipse(px, py - 4, 30, 12, 0, 0, 7); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.35)'; g.beginPath(); g.ellipse(px - 9, py - 7, 9, 3, 0, 0, 7); g.fill();
+    if (kind === 'horn') { g.font = '40px system-ui'; g.textAlign = 'center'; g.fillText('📯', w * 0.5, h * 0.3); }
+    $('st-pv-name').textContent = it.name + (own ? (ss[kind] === it.id ? ' · equipped' : ' · owned') : '');
+    const buy = $('st-buy'); buy.classList.toggle('hidden', own || !pick);
+    if (!own && pick) { const can = IL.save.coins >= it.price; buy.textContent = can ? 'BUY · 🪙 ' + it.price : 'NEED 🪙 ' + (it.price - IL.save.coins) + ' MORE'; buy.disabled = !can;
+      buy.onclick = () => { if (IL.save.coins < it.price) return; IL.save.coins -= it.price; ss.owned.push(it.id); ss[kind] = it.id; IL.persist(); IL.Audio.purchase(); IL.UI.toast('Unlocked ' + it.name + '!'); renderShop(); preview(kind, it, true); if (kind === 'horn') horn(); }; }
+    if (pick && kind === 'horn') horn();
+  }
+  /* coin-earned toast (virtual coins) */
+  function coinToast(n) { if (!n) return; const el = $('cointoast'); el.textContent = '+' + n + ' 🪙'; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); IL.Audio.coin(); }
+  /* rewarded-ad placeholder, capped at 5 per day */
+  const AD_CAP = 5;
+  function adState() { const s = IL.save.shoot = IL.save.shoot || {}, k = dkey(new Date()); if (!s.ads || s.ads.day !== k) s.ads = { day: k, n: 0 }; return s.ads; }
+  function adButton() { const a = adState(), b = $('st-ad'); if (!b) return; b.disabled = a.n >= AD_CAP; b.innerHTML = a.n >= AD_CAP ? 'Ad limit reached — back tomorrow <small>(5/5 today)</small>' : '▶ Watch ad for 50 🪙 <small>(placeholder · ' + a.n + '/' + AD_CAP + ' today)</small>'; }
   function watchAd() {
-    if (adBusy) return; adBusy = true;
-    IL.Ads.showRewarded().then(ok => { adBusy = false; if (ok) { IL.save.coins += 50; IL.persist(); IL.Audio.coin(); IL.UI.toast('+50 🪙'); renderShop(); } });
+    const a = adState(); if (adBusy || a.n >= AD_CAP) return; adBusy = true;
+    IL.Ads.showRewarded().then(ok => { adBusy = false; if (ok) { a.n++; IL.save.coins += 50; IL.persist(); coinToast(50); renderShop(); adButton(); } });
   }
   /* daily login coins (virtual), with a small day-streak bonus */
+  const LOGIN = [20, 30, 40, 50, 60, 70, 100];   // 7-day login calendar (repeats)
   const dkey = (d) => d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
   function loginBonus() {
     const s = IL.save.shoot = IL.save.shoot || {}, L = s.login = s.login || { last: '', days: 0 }, today = dkey(new Date()), yest = dkey(new Date(Date.now() - 864e5));
     const el = $('login-bonus'); if (!el) return;
     if (L.last === today) { el.classList.add('hidden'); return; }
-    const days = L.last === yest ? L.days + 1 : 1, amt = 20 + 10 * Math.min(days - 1, 5);
+    const days = L.last === yest ? L.days + 1 : 1, di = (days - 1) % 7, amt = LOGIN[di];
+    $('lb-cal').innerHTML = LOGIN.map((a, i) => '<i class="' + (i < di ? 'got' : i === di ? 'now' : '') + '"><b>D' + (i + 1) + '</b>' + a + '</i>').join('');
     $('lb-txt').textContent = '🎁 Daily bonus +' + amt + ' 🪙' + (days > 1 ? ' · day ' + days + ' streak' : '');
     el.classList.remove('hidden');
-    $('lb-claim').onclick = () => { L.last = today; L.days = days; IL.save.coins += amt; IL.persist(); IL.Audio.coin(); el.classList.add('hidden'); IL.UI.toast('+' + amt + ' 🪙 · come back tomorrow for more'); $('home-coins').textContent = '🪙 ' + IL.save.coins.toLocaleString(); };
+    $('lb-claim').onclick = () => { L.last = today; L.days = days; IL.save.coins += amt; IL.persist(); el.classList.add('hidden'); coinToast(amt); $('home-coins').textContent = '🪙 ' + IL.save.coins.toLocaleString(); };
   }
   function init() {
     $('st-back').onclick = () => { IL.Audio.click(); if (back === 'pints-path') IL.Shoot.openPints(); else IL.UI.show('home'); };
@@ -96,5 +124,5 @@ IL.Meta = (function () {
     $('wk-go').onclick = () => { IL.Audio.click(); IL.Shoot.start('weekly'); };
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
-  return { loginBonus, weekNumber, weeklyBest, submitWeekly, openWeekly, openShop, horn, BADGES, board };
+  return { coinToast, AD_CAP, adState, loginBonus, weekNumber, weeklyBest, submitWeekly, openWeekly, openShop, horn, BADGES, board };
 })();

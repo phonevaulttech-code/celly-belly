@@ -37,7 +37,8 @@ IL.Shoot = (function () {
     S = { mode: weekly ? 'weekly' : daily ? 'daily' : 'endless', n, r: rng(weekly ? n * 15485863 + 77 : daily ? n * 92821 + 5 : (Math.random() * 1e9) | 0), score: 0, streak: 0, bestStreak: 0, pucks: 3, shots: 0, hits: 0, dings: 0, bars: 0,
       puck: null, target: null, goalie: null, t: 0, stop: 0, shake: 0, celly: 0, ended: false, parts: [], resetT: 0, lastSpot: -1 };
     $('s-end').classList.add('hidden'); IL.UI.show('shoot'); layout(); nextTarget(); hud();
-    say(weekly ? 'WEEKLY TOURNAMENT #' + n : daily ? 'DAILY #' + n : 'BEAT THE GOALIE', 'soft');
+    if (S.mode === 'endless' && !sv().tut) { S.tut = 1; nextTarget(); say('QUICK WARM-UP · 3 SHOTS', 'soft'); }
+    else say(weekly ? 'WEEKLY TOURNAMENT #' + n : daily ? 'DAILY #' + n : 'BEAT THE GOALIE', 'soft');
     cancelAnimationFrame(raf); last = performance.now(); raf = requestAnimationFrame(frame);
   }
   function stop(silent) { cancelAnimationFrame(raf); S = null; drag = null; if (!silent) IL.UI.show('home'); }
@@ -67,6 +68,8 @@ IL.Shoot = (function () {
   function nextTarget() {
     const home = (S.r() - 0.5) * 0.3;
     S.target = null; S.goalie = makeGoalie(S.streak, home, true);
+    if (S.tut) { S.goalie.speed = S.tut === 1 ? 0 : 0.45; S.goalie.react = S.tut > 1; S.goalie.canDrop = false; }   // warm-up: a sleepy goalie
+    else if (S.shots < 3) S.goalie.speed *= 0.8;                       // every run: first 3 shots feel winnable
   }
 
   /* ---------- input: swipe direction + speed = aim + power; sideways bow = light curve ---------- */
@@ -100,6 +103,7 @@ IL.Shoot = (function () {
     if (!S || S.ended || S.puck || S.pucks <= 0 || S.replay) return;
     S.shots++;
     let fu = a.u, fv = a.v;                                        // lands exactly where the preview showed (no aim assist, no spread)
+    if (S.tut === 1) { const sg = fu > 0 ? 1 : -1; fu = sg * clamp(Math.abs(fu), 0.62, 0.85); fv = clamp(fv, 0.12, 0.85); if (S.goalie) S.goalie.x = -sg * 0.42; }   // first-ever shot always goes in: he bites the wrong way
     if (S.mode === 'pints') { const d = drift(); fu += d.u; fv += d.v; S.pucks--; S.shotKnocks = 0; }
     S.puck = { a, t: 0, T: 0.38, fu, fv, done: false, hitSet: [], X: 0, Y: 0, Z: PZ, trail: [] };
     IL.Audio.slap(0.6); IL.Audio.haptic(12); if (S.mode === 'pints') hud();
@@ -114,6 +118,23 @@ IL.Shoot = (function () {
     if (Math.abs(curve || 0) > 0.15) c *= 0.6;                         // deke
     return c;
   }
+  // first-run warm-up: 3 free shots (hand-swipe ghost, sleepy goalie, guaranteed first goal), then the real run starts clean
+  const TUT = [null, { u: -0.82, v: 0.82, t: 'SWIPE UP TO SHOOT' }, { u: 0.85, v: 0.15, t: 'SWIPE SIDEWAYS = CORNERS' }, { u: -0.8, v: 0.6, c: 1, t: 'BOW YOUR SWIPE TO DEKE' }];
+  function tutStep() {
+    if (!S || !S.tut) return; S.tut++;
+    if (S.tut > 3) { const run = S; setTimeout(() => { if (S !== run) return; sv().tut = 1; IL.persist(); Object.assign(S, { tut: 0, score: 0, streak: 0, bestStreak: 0, pucks: 3, shots: 0, hits: 0, dings: 0, bars: 0, lastZone: null }); hud(); nextTarget(); say('GAME ON · 3 PUCKS', 'gold'); }, 1300); }
+  }
+  function drawTut(g) {
+    const st = TUT[Math.min(3, S.tut)], c = P(0, 0, PZ), sw = swipeFor(st.u, st.v), k = (S.t * 0.7) % 1, e = Math.min(1, k / 0.6), ee = e * e * (3 - 2 * e);
+    const bow = st.c ? Math.sin(Math.PI * ee) * W * 0.14 : 0, hx = c.x + sw.dx * ee + bow, hy = c.y + 10 + sw.dy * ee;
+    g.save(); g.globalAlpha = k < 0.8 ? 1 : (1 - k) * 5;
+    g.strokeStyle = 'rgba(255,255,255,.75)'; g.lineWidth = 5; g.lineCap = 'round'; g.setLineDash([2, 10]); g.beginPath();
+    for (let i = 0; i <= 12; i++) { const q = ee * i / 12, x = c.x + sw.dx * q + (st.c ? Math.sin(Math.PI * q) * W * 0.14 : 0), y = c.y + 10 + sw.dy * q; i ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); g.setLineDash([]);
+    g.font = '46px system-ui'; g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText('👆', hx, hy - 6);
+    g.globalAlpha = 1; g.fillStyle = 'rgba(10,12,20,.75)'; const ty = H * 0.17, tw = Math.min(W - 30, 300); g.beginPath(); IL.R.rr(g, W / 2 - tw / 2, ty - 22, tw, 44, 14); g.fill();
+    g.fillStyle = '#ffe14a'; g.font = 'italic 900 17px Impact,"Arial Black",sans-serif'; g.textBaseline = 'middle'; g.fillText(st.t, W / 2, ty - 2); g.fillStyle = '#fff'; g.font = '700 11px system-ui'; g.fillText('WARM-UP ' + Math.min(3, S.tut) + '/3 · FREE SHOTS', W / 2, ty + 14);
+    g.restore();
+  }
   function roar(lv) { const r = Math.random(); if (lv >= 2) { IL.Audio.cheer(true); if (r < 0.35) setTimeout(() => IL.Audio.organ(), 350); else if (r < 0.7) setTimeout(() => IL.Audio.cheer(false), 600); } else if (r < 0.5) IL.Audio.cheer(false); else { IL.Audio.cheer(true); } }
   function zone(u, v, gx) {
     const top = v > 0.72, corner = Math.abs(u) > 0.6, low = v < 0.25;
@@ -126,7 +147,7 @@ IL.Shoot = (function () {
     const postD = Math.abs(Math.abs(X) - GW), barD = Math.abs(Y - GH);
     const onPost = postD < POST + PUCK && Y < GH + POST, onBar = barD < POST + PUCK && Math.abs(X) < GW + POST;
     let out = 'miss';
-    if (gl && (inMouth || onBar || onPost)) { const part = gearHit(gl, X / GW, Y / GH); if (part) { out = 'save'; p.savedBy = part; } }
+    if (gl && S.tut !== 1 && (inMouth || onBar || onPost)) { const part = gearHit(gl, X / GW, Y / GH); if (part) { out = 'save'; p.savedBy = part; } }
     if (out !== 'save') {
       if (onBar && Y <= GH) out = 'bardown';
       else if (onPost && Math.abs(X) <= GW) out = 'postin';
@@ -134,7 +155,7 @@ IL.Shoot = (function () {
       else if (inMouth) out = 'goal';
     }
     // he occasionally robs even a good corner shot: ~15% at streak 0 → ~40% at streak 10+. Snipes under the bar and dekes keep the best odds.
-    if (gl && (out === 'goal' || out === 'postin')) {
+    if (gl && !S.tut && (S.shots > 3 || robMode === 'always') && (out === 'goal' || out === 'postin')) {
       const ch = robMode === 'off' ? 0 : robMode === 'always' ? 1 : robChance(S.streak, p.fu, p.fv, p.a.curve);
       if (ch > 0 && S.r() < ch) { out = 'save'; p.savedBy = p.fu > gl.x ? 'glove' : 'blocker'; p.cornerRob = true;
         gl.x += clamp(p.fu * 0.6 - gl.x, -0.18, 0.18); if (p.fv > 0.55) gl.lift = 1; else gl.drop = 1; }
@@ -157,12 +178,14 @@ IL.Shoot = (function () {
       burst(p.fu, p.fv, out === 'bardown' ? '#ffcf3f' : '#ff1f35');
       S.light = 1.6; S.ripple = { u: p.fu, v: p.fv, t: 0 }; roar(out === 'bardown' || base >= 300 ? 2 : S.streak >= 3 ? 2 : 1);
       if (out === 'bardown' || S.streak % 10 === 0) p.replay = true;
-      setTimeout(() => S && !S.ended && nextTarget(), 450);
+      if (S.tut === 1) { S.celly = 1.6; S.light = 2.2; setTimeout(() => S && say('FIRST CELLY! 🍺', 'fire'), 500); setTimeout(() => S && IL.Audio.organ(), 300); const c = UV(p.fu, p.fv); for (let i = 0; i < 36; i++) { const a = Math.random() * 6.28, sp = 90 + Math.random() * 170; S.parts.push({ x: c.x, y: c.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 120, life: 0.9, col: ['#ffd23f', '#ff1f35', '#ffffff', '#7fe7ff'][i % 4] }); } }
+      tutStep();
+      setTimeout(() => S && !S.ended && nextTarget(), S.tut === 2 ? 1100 : 450);
     } else if (out === 'ding') {
-      IL.Audio.ping(); S.dings++; S.score += 25; S.pucks--; say('DING!  SO CLOSE', 'soft'); IL.Audio.haptic([10, 40, 10]); S.stop = 0.06;
+      IL.Audio.ping(); S.dings++; S.score += 25; if (!S.tut) S.pucks--; tutStep(); say('DING!  SO CLOSE', 'soft'); IL.Audio.haptic([10, 40, 10]); S.stop = 0.06;
       setTimeout(() => S && !S.ended && !S.puck && nextTarget(), 650);
     } else {
-      S.streak = 0; S.pucks--;
+      S.streak = 0; if (!S.tut) S.pucks--; tutStep();
       if (out === 'save') { IL.Audio.thunk(); IL.Audio.cheer(Math.random() < 0.5); say('ROBBED!', 'robbed'); S.stop = 0.12; if (gl) { const c = UV(gl.x, 0.6); for (let i = 0; i < 14; i++) { const a = Math.random() * 6.28, sp = 70 + Math.random() * 110; S.parts.push({ x: c.x, y: c.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 80, life: 0.6, col: i % 2 ? '#7fe7ff' : '#ffffff' }); } gl.saveT = 1.1; gl.glove = p.savedBy === 'glove' ? 1 : 0; } if (p.savedBy === 'glove') p.caught = true; }
       else { IL.Audio.board(0.4); say('WIDE', 'bad'); }
       setTimeout(() => S && !S.ended && !S.puck && nextTarget(), 650);
@@ -285,7 +308,8 @@ IL.Shoot = (function () {
       g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(0, 0, W, 54); g.fillRect(0, H - 54, W, 54);
       g.fillStyle = '#ff1f35'; g.beginPath(); g.arc(22, H - 27, 6, 0, 7); g.fill(); g.fillStyle = '#fff'; g.font = 'italic 900 18px Impact,"Arial Black",sans-serif'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('REPLAY', 34, H - 27);
       g.textAlign = 'right'; g.font = 'italic 700 13px system-ui'; g.fillText('tap to skip', W - 14, H - 27); }
-    if (!S.shots && !drag) { const k = (S.t * 0.8) % 1, c = P(0, 0, PZ); g.globalAlpha = 1 - k; g.fillStyle = '#0d1b33'; g.beginPath(); g.arc(c.x, c.y - 40 - k * 90, 7, 0, 7); g.fill(); g.globalAlpha = 1; }
+    if (S.tut && !drag && !S.puck && S.tut <= 3) drawTut(g);
+    else if (!S.shots && !drag) { const k = (S.t * 0.8) % 1, c = P(0, 0, PZ); g.globalAlpha = 1 - k; g.fillStyle = '#0d1b33'; g.beginPath(); g.arc(c.x, c.y - 40 - k * 90, 7, 0, 7); g.fill(); g.globalAlpha = 1; }
     g.restore();
   }
   // NHL Hitz-inspired (original art): dark arena, spotlights, crowd silhouettes, chrome glass, dasher ads, glowing ice
@@ -616,7 +640,7 @@ IL.Shoot = (function () {
     const ref = S.mode === 'endless' ? s.best : 0, gap = ref - S.score, near = !pb && ref > 0 && S.score > 0 && gap <= Math.max(150, ref * 0.3);
     s.last = S.mode === 'endless' ? { score: S.score, gap: pb ? 0 : gap } : s.last;
     $('se-score').textContent = S.score.toLocaleString(); $('se-pb').classList.toggle('hidden', !pb && !near); $('se-pb').textContent = pb ? 'NEW BEST' : 'ONLY ' + gap.toLocaleString() + ' FROM YOUR BEST!';
-    $('se-stats').textContent = 'Best streak ' + S.bestStreak + ' · ' + S.hits + ' goals · ' + S.bars + ' bar down' + (S.mode === 'weekly' ? ' · #' + S.rank + ' of your runs this week' : S.mode === 'daily' ? '' : ' · Best ' + s.best.toLocaleString());
+    $('se-stats').textContent = S.hits + (S.hits === 1 ? ' goal' : ' goals') + ' · best streak ' + S.bestStreak + (S.bars ? ' · ' + S.bars + ' bar down' : '') + (S.mode === 'weekly' ? ' · #' + S.rank + ' this week' : S.mode === 'daily' || !s.best || pb ? '' : ' · best ' + s.best.toLocaleString());
     $('se-coins').textContent = coins ? '+' + coins + ' 🪙' : ''; if (coins) IL.Meta.coinToast(coins);
     $('s-end').classList.remove('hidden'); if (pb) IL.Audio.win(); else IL.Audio.grade('B');
     $('se-retry').textContent = 'PLAY AGAIN'; $('se-stars').textContent = ''; $('se-levels').classList.toggle('hidden', S.mode !== 'weekly'); $('se-levels').textContent = 'Leaderboard';
@@ -678,7 +702,7 @@ IL.Shoot = (function () {
   }
   /* test hooks */
   function debug() { if (!S) return null; const launch = P(0, 0, PZ);
-    return { mode: S.mode, score: S.score, streak: S.streak, pucks: S.pucks, shots: S.shots, hits: S.hits, bars: S.bars, ended: S.ended, flying: !!S.puck, celly: S.celly, goalie: !!S.goalie, light: S.light || 0, ripple: !!S.ripple, replay: !!S.replay, perfect: !!S.perfect, gk: S.goalie && { home: S.goalie.home, x: S.goalie.x, drop: S.goalie.drop, lift: S.goalie.lift, saveT: S.goalie.saveT, speed: S.goalie.speed },
+    return { mode: S.mode, score: S.score, streak: S.streak, pucks: S.pucks, shots: S.shots, hits: S.hits, bars: S.bars, ended: S.ended, flying: !!S.puck, celly: S.celly, goalie: !!S.goalie, tut: S.tut || 0, light: S.light || 0, ripple: !!S.ripple, replay: !!S.replay, perfect: !!S.perfect, gk: S.goalie && { home: S.goalie.home, x: S.goalie.x, drop: S.goalie.drop, lift: S.goalie.lift, saveT: S.goalie.saveT, speed: S.goalie.speed },
       target: null, zone: S.lastZone, launch, out: S.lastOut,
       li: S.li, stars: S.stars, wob: S.wob || 0, cleared: !!S.cleared, objs: S.objs ? S.objs.filter(o => !o.dead).map((o, i) => ({ k: o.k, i: S.objs.indexOf(o) })) : null }; }
   function _fire(u, v, curve) { fire({ u, v, curve: curve || 0, power: 1 }); }
